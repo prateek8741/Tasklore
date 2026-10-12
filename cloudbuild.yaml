@@ -1,0 +1,11 @@
+# Cloud Build recipe for the API image (used by build.sh).
+# Building in Google Cloud gives the x86 image Cloud Run needs,
+# even though this Mac has an ARM (Apple Silicon) chip.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE}:${_TAG}", "-t", "${_IMAGE}:latest", "."]
+images:
+  - "${_IMAGE}:${_TAG}"
+  - "${_IMAGE}:latest"
+options:
+  logging: CLOUD_LOGGING_ONLY # required when the build runs as our own service account

@@ -1,0 +1,7 @@
+# Files gcloud does not upload to Cloud Build
+.gcloudignore
+.venv/
+__pycache__/
+*.pyc
+.env
+tests/

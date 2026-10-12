@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.env
+.firebase/
+node_modules/
+
+# Terraform: state and local settings stay on your machine (the lock file is committed)
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log

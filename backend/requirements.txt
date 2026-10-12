@@ -1,0 +1,7 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+google-genai>=1.40,<3
+google-cloud-firestore>=2.16
+firebase-admin>=6.5
+pydantic>=2.6

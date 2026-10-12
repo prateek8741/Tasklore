@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FirstRung</title>
+<style>
+  :root {
+    --bg: #f7f7f4; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e3e2dc;
+    --accent: #1a73e8; --accent-soft: #e8f0fe; --good: #188038; --warn: #b06000; --warn-soft: #fef7e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --card: #1f1f1d; --ink: #ecebe6; --muted: #a3a29c; --line: #34332f;
+            --accent: #8ab4f8; --accent-soft: #1e2a3d; --good: #81c995; --warn: #fdd663; --warn-soft: #3a3320; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  header { padding: 20px 16px 8px; max-width: 920px; margin: 0 auto; display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+  #authBox { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  nav { display: flex; gap: 6px; max-width: 920px; margin: 12px auto 0; padding: 0 16px; flex-wrap: wrap; }
+  nav button { border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 8px 14px; border-radius: 999px; cursor: pointer; font: inherit; }
+  nav button.on { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  main { max-width: 920px; margin: 0 auto; padding: 16px; }
+  section { display: none; } section.on { display: block; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 6px; font-size: 17px; }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn { border: 0; background: var(--accent); color: var(--bg); padding: 9px 16px; border-radius: 8px; cursor: pointer; font: inherit; font-weight: 600; }
+  .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .btn:disabled { opacity: .5; cursor: wait; }
+  textarea, input[type=text] { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  textarea { min-height: 90px; }
+  pre { background: var(--bg); border: 1px solid var(--line); padding: 10px; border-radius: 8px; overflow: auto; font-size: 13px; white-space: pre-wrap; }
+  ol.steps li { margin-bottom: 8px; }
+  .why { color: var(--muted); font-size: 14px; }
+  .pill { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
+  .gap { background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 8px 12px; border-radius: 6px; margin: 6px 0; }
+  .meter { height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 6px 0 2px; }
+  .meter > div { height: 100%; background: var(--good); }
+  .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+  .item.current { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .item.done { opacity: .55; }
+  .msg { padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); margin-top: 10px; }
+  video { width: 100%; max-height: 260px; border-radius: 8px; background: #000; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>FirstRung</h1>
+    <p>Seniors show a task once. New hires get an onboarding plan that adapts to them.</p>
+  </div>
+  <div id="authBox" class="muted">Checking sign-in…</div>
+</header>
+<nav>
+  <button data-tab="status" class="on">0 · Infra check</button>
+  <button data-tab="capture">1 · Record a task</button>
+  <button data-tab="plan">2 · Build onboarding plan</button>
+  <button data-tab="onboard">3 · New hire view</button>
+</nav>
+<main>
+
+<!-- 0. Infra check: Jeff's "deploy something basic first" -->
+<section id="status" class="on">
+  <div class="card">
+    <h2>Is the Google Cloud setup working?</h2>
+    <p class="muted">All checks must pass before building features. Cloud Run = the API and database are up. Login = the API accepts your Google sign-in. Gemini = the AI call works end to end.</p>
+    <div class="row">
+      <button class="btn" id="btnHealth">Check Cloud Run</button>
+      <button class="btn ghost" id="btnMe">Check login</button>
+      <button class="btn ghost" id="btnHello">Check Gemini</button>
+    </div>
+    <pre id="statusOut">Not checked yet.</pre>
+  </div>
+</section>
+
+<!-- 1. Capture -->
+<section id="capture">
+  <div class="card">
+    <h2>Show the task once</h2>
+    <p class="muted">Share your screen and do the task while explaining out loud why you do each step. Keep it under 2–3 minutes.</p>
+    <input type="text" id="hint" placeholder="Optional context, e.g. 'Monthly vendor invoice reconciliation, Finance team'">
+    <div class="row" style="margin-top:10px">
+      <button class="btn" id="btnRec">Start recording</button>
+      <span class="muted">or</span>
+      <input type="file" id="file" accept="video/*">
+      <button class="btn ghost" id="btnUpload">Upload video</button>
+    </div>
+    <video id="preview" controls hidden></video>
+  </div>
+  <div class="card" id="pbCard" hidden></div>
+  <div class="card">
+    <h2>Team playbook library</h2>
+    <div id="library" class="muted">Loading…</div>
+  </div>
+</section>
+
+<!-- 2. Plan + gaps -->
+<section id="plan">
+  <div class="card">
+    <h2>Describe the new hire's role</h2>
+    <textarea id="role">Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.</textarea>
+    <div class="row" style="margin-top:10px">
+      <label class="muted">Working days <input type="text" id="days" value="5" style="width:60px"></label>
+      <button class="btn" id="btnPlan">Generate plan + find gaps</button>
+    </div>
+  </div>
+  <div id="planOut"></div>
+</section>
+
+<!-- 3. New hire -->
+<section id="onboard">
+  <div class="card"><p class="muted" id="onboardEmpty">Generate a plan in step 2 first.</p><div id="onboardOut"></div></div>
+</section>
+
+</main>
+<script>
+const API = window.FIRSTRUNG_API || "";   // same origin (Firebase rewrite or local)
+const $ = (id) => document.getElementById(id);
+let currentPlan = null, currentPlanId = null, currentIndex = 0, doneSet = new Set();
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button, section").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); $(b.dataset.tab).classList.add("on");
+  if (b.dataset.tab === "capture") loadLibrary();
+});
+
+// ---- sign-in: Firebase Auth with Google ----
+// Firebase Hosting serves this project's public config at /__/firebase/init.json,
+// so no keys live in this file. Locally (uvicorn) it is missing and sign-in stays off.
+const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0";
+let fb = null, fbAuth = null, currentUser = null;
+const authReady = (async () => {
+  try {
+    const r = await fetch("/__/firebase/init.json");
+    if (!r.ok) throw new Error("no Firebase config here");
+    const config = await r.json();
+    const [{ initializeApp }, authLib] = await Promise.all([
+      import(`${FIREBASE_SDK}/firebase-app.js`), import(`${FIREBASE_SDK}/firebase-auth.js`)]);
+    fb = authLib; fbAuth = fb.getAuth(initializeApp(config));
+    await new Promise(done => fb.onAuthStateChanged(fbAuth, u => { currentUser = u; renderAuth(); done(); }));
+  } catch (e) {
+    console.info("Sign-in off:", e.message);
+    renderAuth();
+  }
+})();
+
+function renderAuth() {
+  const box = $("authBox");
+  if (!fbAuth) { box.textContent = "Local dev: sign-in off"; return; }
+  if (currentUser) {
+    box.innerHTML = `<span>${esc(currentUser.email)}</span><button class="btn ghost" id="btnOut">Sign out</button>`;
+    $("btnOut").onclick = () => fb.signOut(fbAuth);
+  } else {
+    box.innerHTML = `<button class="btn" id="btnIn">Sign in with Google</button>`;
+    $("btnIn").onclick = () => fb.signInWithPopup(fbAuth, new fb.GoogleAuthProvider())
+      .catch(e => alert("Sign-in failed: " + e.message));
+  }
+}
+
+// Every API call carries the signed-in user's ID token (the API checks it).
+async function call(path, opts = {}) {
+  await authReady;
+  const headers = { ...(opts.headers || {}) };
+  if (currentUser) headers.Authorization = "Bearer " + await currentUser.getIdToken();
+  const r = await fetch(API + path, { ...opts, headers });
+  const body = await r.json().catch(() => ({}));
+  if (r.status === 401) throw new Error("Please sign in with Google first (top right).");
+  if (!r.ok) throw new Error(body.detail || `HTTP ${r.status} ${r.statusText}`.trim());
+  return body;
+}
+function busy(btn, on, label) { btn.disabled = on; if (label) btn.textContent = label; }
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// ---- 0. infra ----
+$("btnHealth").onclick = async () => {
+  try { $("statusOut").textContent = JSON.stringify(await call("/api/health"), null, 2); }
+  catch (e) { $("statusOut").textContent = "Cloud Run check failed: " + e.message; }
+};
+$("btnMe").onclick = async () => {
+  try { $("statusOut").textContent = JSON.stringify(await call("/api/me"), null, 2); }
+  catch (e) { $("statusOut").textContent = "Login check failed: " + e.message; }
+};
+$("btnHello").onclick = async (ev) => {
+  busy(ev.target, true, "Calling Gemini…");
+  try { $("statusOut").textContent = JSON.stringify(await call("/api/hello"), null, 2); }
+  catch (e) { $("statusOut").textContent = "Gemini check failed: " + e.message; }
+  busy(ev.target, false, "Check Gemini");
+};
+
+// ---- 1. capture ----
+let recorder, chunks = [];
+$("btnRec").onclick = async () => {
+  if (recorder && recorder.state === "recording") { recorder.stop(); return; }
+  try {
+    const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
+    let tracks = [...screen.getVideoTracks()];
+    try { const mic = await navigator.mediaDevices.getUserMedia({ audio: true }); tracks.push(...mic.getAudioTracks()); }
+    catch { alert("No microphone: recording without narration. Narration makes playbooks much better."); }
+    const stream = new MediaStream(tracks);
+    chunks = [];
+    recorder = new MediaRecorder(stream, { mimeType: "video/webm", videoBitsPerSecond: 600000 });
+    recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+    recorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      $("btnRec").textContent = "Start recording";
+      const blob = new Blob(chunks, { type: "video/webm" });
+      $("preview").src = URL.createObjectURL(blob); $("preview").hidden = false;
+      sendVideo(blob, "recording.webm");
+    };
+    screen.getVideoTracks()[0].onended = () => recorder.state === "recording" && recorder.stop();
+    recorder.start(1000);
+    $("btnRec").textContent = "Stop recording";
+  } catch (e) { alert("Could not start recording: " + e.message); }
+};
+$("btnUpload").onclick = () => { const f = $("file").files[0]; if (f) sendVideo(f, f.name); else alert("Choose a video first."); };
+
+async function sendVideo(blob, name) {
+  const card = $("pbCard"); card.hidden = false;
+  card.innerHTML = '<p class="muted">Gemini is watching the recording and writing the playbook… (30–60 s)</p>';
+  const fd = new FormData(); fd.append("file", blob, name); fd.append("hint", $("hint").value);
+  try {
+    const { id, model, playbook: p } = await call("/api/capture", { method: "POST", body: fd });
+    card.innerHTML = `<h2>${esc(p.title)}</h2>
+      <p>${esc(p.goal)}</p>
+      <p><span class="pill">${esc(p.role_hint)}</span>${p.tools.map(t => `<span class="pill">${esc(t)}</span>`).join("")}</p>
+      <ol class="steps">${p.steps.map(s => `<li><b>${esc(s.title)}</b> <span class="muted">(${esc(s.timestamp)})</span><br>${esc(s.action)}<div class="why">Why: ${esc(s.why)}</div></li>`).join("")}</ol>
+      <p><b>Watch out for</b></p><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul>
+      <p><b>Done right when</b></p><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul>
+      <p class="muted">Saved as ${esc(id)} · ${esc(model)}</p>`;
+    loadLibrary();
+  } catch (e) { card.innerHTML = `<p>Capture failed: ${esc(e.message)}</p>`; }
+}
+async function loadLibrary() {
+  try {
+    const { playbooks } = await call("/api/playbooks");
+    $("library").innerHTML = playbooks.length
+      ? playbooks.map(p => `<div class="item"><b>${esc(p.title)}</b> <span class="muted">· ${esc(p.role_hint)} · ${p.steps.length} steps</span></div>`).join("")
+      : "No playbooks yet. Record one above.";
+  } catch (e) { $("library").textContent = "Could not load: " + e.message; }
+}
+
+// ---- 2. plan ----
+$("btnPlan").onclick = async (ev) => {
+  busy(ev.target, true, "Building plan…");
+  $("planOut").innerHTML = '<div class="card muted">Matching the role against your playbook library…</div>';
+  try {
+    const { id, plan } = await call("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role_description: $("role").value, days: parseInt($("days").value) || 5 }) });
+    currentPlan = plan; currentPlanId = id; currentIndex = 0; doneSet = new Set();
+    $("planOut").innerHTML = `
+      <div class="card"><h2>Coverage: ${plan.coverage_percent}% of the role</h2>
+        <div class="meter"><div style="width:${plan.coverage_percent}%"></div></div>
+        <p class="muted">${esc(plan.summary)}</p></div>
+      <div class="card"><h2>Missing knowledge (${plan.gaps.length})</h2>
+        <p class="muted">Nobody has recorded these yet. Ask the right person to show them once.</p>
+        ${plan.gaps.map(g => `<div class="gap"><b>${esc(g.topic)}</b><br>${esc(g.why_needed)}<br><span class="muted">Ask: ${esc(g.suggested_recorder)}</span></div>`).join("") || "<p>No gaps found.</p>"}
+      </div>
+      <div class="card"><h2>Plan</h2>${plan.items.map(itemHtml).join("")}
+        <button class="btn" onclick="document.querySelector('[data-tab=onboard]').click(); renderOnboard();">Open as the new hire</button></div>`;
+  } catch (e) { $("planOut").innerHTML = `<div class="card">Plan failed: ${esc(e.message)}</div>`; }
+  busy(ev.target, false, "Generate plan + find gaps");
+};
+const itemHtml = (it, i) => `<div class="item ${i === currentIndex ? "current" : ""} ${doneSet.has(i) ? "done" : ""}">
+  <span class="pill">Day ${it.day}</span><span class="pill">${esc(it.kind)}</span><b>${esc(it.title)}</b><br>
+  <span class="muted">${esc(it.detail)}</span></div>`;
+
+// ---- 3. new hire + branching ----
+function renderOnboard(message) {
+  if (!currentPlan) return;
+  $("onboardEmpty").hidden = true;
+  const it = currentPlan.items[currentIndex];
+  $("onboardOut").innerHTML = `<h2>Welcome! Your plan as ${esc(currentPlan.role)}</h2>
+    ${currentPlan.items.map(itemHtml).join("")}
+    ${it ? `<div class="row" style="margin-top:10px">
+      <input type="text" id="note" placeholder="Optional: what is confusing you?">
+      <button class="btn" onclick="report('done')">Done</button>
+      <button class="btn ghost" onclick="report('stuck')">I'm stuck</button>
+      <button class="btn ghost" onclick="report('already_know')">I already know this</button></div>`
+      : "<p><b>🎉 Plan complete.</b></p>"}
+    ${message ? `<div class="msg">${esc(message)}</div>` : ""}`;
+}
+async function report(outcome) {
+  const note = ($("note") || {}).value || "";
+  try {
+    const r = await call("/api/session", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan_id: currentPlanId, item_index: currentIndex, outcome, note }) });
+    if (outcome !== "stuck") for (let i = currentIndex; i < (r.next_item_index ?? currentPlan.items.length); i++) doneSet.add(i);
+    currentIndex = r.next_item_index ?? currentPlan.items.length;
+    renderOnboard(r.message);
+  } catch (e) { renderOnboard("Error: " + e.message); }
+}
+</script>
+</body>
+</html>
