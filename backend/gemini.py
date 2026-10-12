@@ -7,8 +7,10 @@
 GEMINI_MODELS is a comma-separated fallback list. Each call tries them in order,
 so one model being retired or flaky does not take the app down.
 """
+import io
 import logging
 import os
+import time
 
 from google import genai
 from google.genai import types
@@ -78,5 +80,21 @@ def generate(contents, schema=None, system: str | None = None):
     raise GeminiError(f"All Gemini models failed. Last error: {last_err}")
 
 
+INLINE_VIDEO_LIMIT = 15 * 1024 * 1024  # bigger videos would push the request past Gemini's inline limit
+
+
 def video_part(data: bytes, mime_type: str):
-    return types.Part.from_bytes(data=data, mime_type=mime_type)
+    """Small videos travel inside the request; bigger ones go through the Files API first."""
+    if len(data) <= INLINE_VIDEO_LIMIT:
+        return types.Part.from_bytes(data=data, mime_type=mime_type)
+    client = get_client()
+    f = client.files.upload(file=io.BytesIO(data), config=types.UploadFileConfig(mime_type=mime_type))
+    deadline = time.time() + 120
+    while f.state and f.state.name == "PROCESSING":  # Gemini prepares the video before it can be used
+        if time.time() > deadline:
+            raise GeminiError("Gemini took too long to process the video. Try a shorter recording.")
+        time.sleep(2)
+        f = client.files.get(name=f.name)
+    if f.state and f.state.name == "FAILED":
+        raise GeminiError("Gemini could not read this video. Try recording again (WebM or MP4).")
+    return f  # uploaded files are deleted by Gemini automatically after 48 hours

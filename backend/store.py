@@ -22,6 +22,9 @@ class MemoryStore:
     def list(self, collection: str) -> dict[str, dict]:
         return dict(self.data.get(collection, {}))
 
+    def delete(self, collection: str, doc_id: str) -> None:
+        self.data.get(collection, {}).pop(doc_id, None)
+
 
 class FirestoreStore:
     def __init__(self):
@@ -40,6 +43,9 @@ class FirestoreStore:
 
     def list(self, collection: str) -> dict[str, dict]:
         return {d.id: d.to_dict() for d in self.db.collection(collection).stream()}
+
+    def delete(self, collection: str, doc_id: str) -> None:
+        self.db.collection(collection).document(doc_id).delete()
 
 
 store = FirestoreStore() if os.getenv("USE_FIRESTORE") == "1" else MemoryStore()

@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .env
 .firebase/
+frontend/public/config.js
 node_modules/
 
 # Terraform: state and local settings stay on your machine (the lock file is committed)

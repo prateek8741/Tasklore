@@ -6,6 +6,8 @@ MOCK_PLAYBOOK = {
     "goal": "Make sure every vendor invoice matches a purchase order before payment",
     "role_hint": "Accounts Executive",
     "tools": ["Excel", "Tally"],
+    "skills": ["Invoice matching", "XLOOKUP", "GST input tax credit"],
+    "estimated_minutes": 30,
     "steps": [
         {"title": "Export the ledger", "action": "In Tally, export the vendor ledger for the month to Excel",
          "why": "We always reconcile against the books, not the vendor's statement", "timestamp": "00:05"},
@@ -16,15 +18,27 @@ MOCK_PLAYBOOK = {
     ],
     "gotchas": ["Forgetting to check GSTIN", "Matching on amount only, which hides duplicates"],
     "success_criteria": ["Every invoice is marked Matched or Flagged", "Flagged list is sent to the finance lead"],
+    "narration_language": "English",
 }
 
 
 def mock_plan(role: str, days: int, library: dict) -> dict:
+    """Same shape as schemas.PlanDraft; the API computes coverage and gaps from it."""
     pb_id = next(iter(library), "")
     return {
         "role": role[:80],
         "summary": "(MOCK) A gentle first week: tools and people first, then real tasks with practice.",
-        "coverage_percent": 60,
+        "role_tasks": [
+            {"task": "Reconcile vendor invoices against purchase orders", "importance": 3, "playbook_id": pb_id,
+             "why_needed": "The role description mentions invoice reconciliation",
+             "suggested_recorder": "Senior Accounts Executive", "needed_by_day": 2},
+            {"task": "Raise a purchase order in Tally", "importance": 2, "playbook_id": "",
+             "why_needed": "The role handles vendor payments", "suggested_recorder": "Procurement lead",
+             "needed_by_day": 3},
+            {"task": "Get approval for payments over ₹50,000", "importance": 2, "playbook_id": "",
+             "why_needed": "New hires will hit this in week 1", "suggested_recorder": "Finance lead",
+             "needed_by_day": 2},
+        ],
         "items": [
             {"day": 1, "title": "Get access to Tally and the shared drive", "kind": "setup", "playbook_id": "",
              "detail": "Ask IT for Tally login and the Finance shared drive."},
@@ -35,12 +49,6 @@ def mock_plan(role: str, days: int, library: dict) -> dict:
             {"day": 3, "title": "Practice: reconcile last month's invoices", "kind": "practice", "playbook_id": pb_id,
              "detail": "Do it yourself on a copy of last month's data."},
         ][: max(days, 1) * 2],
-        "gaps": [
-            {"topic": "How to raise a purchase order", "why_needed": "The role description mentions vendor payments",
-             "suggested_recorder": "Procurement lead"},
-            {"topic": "Who approves expenses over ₹50,000", "why_needed": "New hires will hit this in week 1",
-             "suggested_recorder": "Finance lead"},
-        ],
     }
 
 

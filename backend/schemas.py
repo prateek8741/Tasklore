@@ -1,58 +1,83 @@
 """Data shapes shared by the API and by Gemini's structured output."""
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
 # ---------- Capture: a recording becomes a playbook ----------
 class Step(BaseModel):
     title: str = Field(description="Short imperative title, e.g. 'Open the vendor ledger'")
-    action: str = Field(description="Exactly what to do on screen")
+    action: str = Field(description="Exactly what to do on screen: which app, which menu, which column or formula")
     why: str = Field(description="Reason behind the step, taken from the narration")
-    timestamp: str = Field(description="mm:ss in the video where this step happens")
+    timestamp: str = Field(description="mm:ss in the video where this step starts")
 
 
 class Playbook(BaseModel):
-    title: str
-    goal: str = Field(description="What this task achieves for the business")
+    title: str = Field(description="Task name a new hire would search for, e.g. 'Reconcile vendor invoices in Excel'")
+    goal: str = Field(description="What this task achieves for the business, one sentence")
     role_hint: str = Field(description="Which job role usually does this task")
     tools: list[str] = Field(description="Software or systems used")
+    skills: list[str] = Field(description="3-6 short knowledge areas this task teaches, e.g. 'GST input tax credit'")
+    estimated_minutes: int = Field(description="How long a beginner needs to do this task once")
     steps: list[Step]
-    gotchas: list[str] = Field(description="Mistakes a beginner is likely to make")
+    gotchas: list[str] = Field(description="Mistakes a beginner is likely to make on this task")
     success_criteria: list[str] = Field(description="How to tell the task was done right")
+    narration_language: str = Field(description="Language the narrator spoke, e.g. 'English', 'Hindi', 'Hinglish', or 'none'")
 
 
 # ---------- Plan: a role description becomes an onboarding plan + gap report ----------
+class RoleTask(BaseModel):
+    task: str = Field(description="One core task or knowledge area this role needs, specific enough to record as a 2-3 minute video")
+    importance: int = Field(description="3 = done weekly and costly if wrong, 2 = regular, 1 = occasional")
+    playbook_id: str = Field(description="ID of the library playbook that teaches this task, or empty string if none does")
+    why_needed: str = Field(description="One sentence: why this role needs it, citing the role description")
+    suggested_recorder: str = Field(description="Who on the team should record it, by role, e.g. 'Finance lead'")
+    needed_by_day: int = Field(description="Working day the new hire first needs this")
+
+
 class PlanItem(BaseModel):
     day: int = Field(description="Working day number, starting at 1")
     title: str
-    kind: str = Field(description="One of: learn, practice, meet, setup")
+    kind: Literal["learn", "practice", "meet", "setup"]
     playbook_id: str = Field(description="ID of the playbook used, or empty string if none")
     detail: str = Field(description="One or two sentences on what the new hire does")
 
 
+class PlanDraft(BaseModel):
+    """What Gemini returns. Coverage and gaps are computed from role_tasks by the API."""
+    role: str = Field(description="Short role title")
+    summary: str = Field(description="Two sentences: the shape of the first days and why")
+    role_tasks: list[RoleTask] = Field(description="5-10 core tasks of the role, most important first")
+    items: list[PlanItem]
+
+
 class Gap(BaseModel):
-    topic: str = Field(description="Something the role needs that no playbook covers")
+    topic: str
     why_needed: str
-    suggested_recorder: str = Field(description="Who on the team should record it, e.g. 'Finance lead'")
+    suggested_recorder: str
+    importance: int
+    needed_by_day: int
 
 
 class OnboardingPlan(BaseModel):
     role: str
     summary: str
-    coverage_percent: int = Field(description="0-100: how much of the role the existing playbooks cover")
+    coverage_percent: int
+    role_tasks: list[RoleTask]
     items: list[PlanItem]
     gaps: list[Gap]
 
 
 class PlanRequest(BaseModel):
-    role_description: str
-    days: int = 5
+    role_description: str = Field(min_length=10, max_length=4000)
+    days: int = Field(default=5, ge=1, le=10)
 
 
 # ---------- Session: the plan adapts as the new hire works ----------
 class SessionRequest(BaseModel):
     plan_id: str
     item_index: int
-    outcome: str = Field(description="done | stuck | already_know")
+    outcome: Literal["done", "stuck", "already_know"]
     note: str = ""
 
 

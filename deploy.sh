@@ -22,6 +22,8 @@ fi
 
 if [[ "$WHAT" == "all" || "$WHAT" == "web" ]]; then
   echo "==> Publishing the web app to Firebase Hosting"
+  # Video capture calls Cloud Run directly (Hosting stops requests after 60 s).
+  echo "window.FIRSTRUNG_DIRECT_API = \"$(tf_out api_url)\";" > frontend/public/config.js
   firebase deploy --only hosting --project "$PROJECT_ID"
 fi
 

@@ -45,7 +45,17 @@
   .item.done { opacity: .55; }
   .msg { padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); margin-top: 10px; }
   video { width: 100%; max-height: 260px; border-radius: 8px; background: #000; margin-top: 8px; }
+  .btn.small { padding: 4px 10px; font-size: 13px; font-weight: 500; }
+  .item .row { justify-content: space-between; }
+  .task { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .task:last-child { border-bottom: 0; }
+  .task .mark { width: 20px; flex: none; font-weight: 700; }
+  .task .mark.yes { color: var(--good); } .task .mark.no { color: var(--warn); }
+  .imp { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .big { font-size: 34px; font-weight: 700; line-height: 1.1; }
+  .day-head { margin: 14px 0 2px; font-weight: 600; }
 </style>
+<script src="config.js"></script><!-- written by deploy.sh: direct Cloud Run URL; absent locally -->
 </head>
 <body>
 <header>
@@ -104,7 +114,7 @@
     <h2>Describe the new hire's role</h2>
     <textarea id="role">Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.</textarea>
     <div class="row" style="margin-top:10px">
-      <label class="muted">Working days <input type="text" id="days" value="5" style="width:60px"></label>
+      <label class="muted">Working days <input type="number" id="days" value="5" min="1" max="10" style="width:64px"></label>
       <button class="btn" id="btnPlan">Generate plan + find gaps</button>
     </div>
   </div>
@@ -119,8 +129,10 @@
 </main>
 <script>
 const API = window.FIRSTRUNG_API || "";   // same origin (Firebase rewrite or local)
+// Long calls (video capture) go straight to Cloud Run: Firebase Hosting stops requests after 60 s.
+const DIRECT_API = window.FIRSTRUNG_DIRECT_API || API;
 const $ = (id) => document.getElementById(id);
-let currentPlan = null, currentPlanId = null, currentIndex = 0, doneSet = new Set();
+let currentPlan = null, currentPlanId = null, currentIndex = 0, doneSet = new Set(), playbookTitles = {};
 
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button, section").forEach(x => x.classList.remove("on"));
@@ -162,11 +174,11 @@ function renderAuth() {
 }
 
 // Every API call carries the signed-in user's ID token (the API checks it).
-async function call(path, opts = {}) {
+async function call(path, opts = {}, base = API) {
   await authReady;
   const headers = { ...(opts.headers || {}) };
   if (currentUser) headers.Authorization = "Bearer " + await currentUser.getIdToken();
-  const r = await fetch(API + path, { ...opts, headers });
+  const r = await fetch(base + path, { ...opts, headers });
   const body = await r.json().catch(() => ({}));
   if (r.status === 401) throw new Error("Please sign in with Google first (top right).");
   if (!r.ok) throw new Error(body.detail || `HTTP ${r.status} ${r.statusText}`.trim());
@@ -220,27 +232,50 @@ $("btnUpload").onclick = () => { const f = $("file").files[0]; if (f) sendVideo(
 
 async function sendVideo(blob, name) {
   const card = $("pbCard"); card.hidden = false;
-  card.innerHTML = '<p class="muted">Gemini is watching the recording and writing the playbook… (30–60 s)</p>';
+  const mb = blob.size / 1048576;
+  if (mb > 25) { card.innerHTML = `<p>This video is ${mb.toFixed(0)} MB; keep recordings under 25 MB (about 2–3 minutes).</p>`; return; }
+  const started = Date.now();
+  const tick = () => card.innerHTML = `<p class="muted">Gemini is watching the recording (${mb.toFixed(1)} MB) and writing the playbook… ${Math.round((Date.now() - started) / 1000)} s<br>Usually 15–60 seconds.</p>`;
+  tick(); const timer = setInterval(tick, 1000);
   const fd = new FormData(); fd.append("file", blob, name); fd.append("hint", $("hint").value);
   try {
-    const { id, model, playbook: p } = await call("/api/capture", { method: "POST", body: fd });
-    card.innerHTML = `<h2>${esc(p.title)}</h2>
-      <p>${esc(p.goal)}</p>
-      <p><span class="pill">${esc(p.role_hint)}</span>${p.tools.map(t => `<span class="pill">${esc(t)}</span>`).join("")}</p>
-      <ol class="steps">${p.steps.map(s => `<li><b>${esc(s.title)}</b> <span class="muted">(${esc(s.timestamp)})</span><br>${esc(s.action)}<div class="why">Why: ${esc(s.why)}</div></li>`).join("")}</ol>
-      <p><b>Watch out for</b></p><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul>
-      <p><b>Done right when</b></p><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul>
-      <p class="muted">Saved as ${esc(id)} · ${esc(model)}</p>`;
+    const { id, model, ms, playbook } = await call("/api/capture", { method: "POST", body: fd }, DIRECT_API);
+    card.innerHTML = playbookHtml(playbook, id) + `<p class="muted">Saved to the team library · ${esc(model)} · ${(ms / 1000).toFixed(0)} s</p>`;
     loadLibrary();
   } catch (e) { card.innerHTML = `<p>Capture failed: ${esc(e.message)}</p>`; }
+  finally { clearInterval(timer); }
+}
+function playbookHtml(p, id) {
+  const by = p.created_by && p.created_by.name ? ` · recorded by ${esc(p.created_by.name)}` : "";
+  return `<h2>${esc(p.title)}</h2>
+    <p>${esc(p.goal)}</p>
+    <p><span class="pill">${esc(p.role_hint)}</span>${(p.tools || []).map(t => `<span class="pill">${esc(t)}</span>`).join("")}</p>
+    <p class="muted">About ${esc(p.estimated_minutes ?? "?")} min · skills: ${esc((p.skills || []).join(", "))} · narration: ${esc(p.narration_language || "?")}${by}</p>
+    <ol class="steps">${p.steps.map(s => `<li><b>${esc(s.title)}</b> <span class="muted">(${esc(s.timestamp)})</span><br>${esc(s.action)}<div class="why">Why: ${esc(s.why)}</div></li>`).join("")}</ol>
+    <p><b>Watch out for</b></p><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul>
+    <p><b>Done right when</b></p><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul>`;
 }
 async function loadLibrary() {
   try {
     const { playbooks } = await call("/api/playbooks");
+    playbookTitles = Object.fromEntries(playbooks.map(p => [p.id, p.title]));
     $("library").innerHTML = playbooks.length
-      ? playbooks.map(p => `<div class="item"><b>${esc(p.title)}</b> <span class="muted">· ${esc(p.role_hint)} · ${p.steps.length} steps</span></div>`).join("")
+      ? playbooks.map(p => `<div class="item"><div class="row">
+          <div><b>${esc(p.title)}</b> <span class="muted">· ${esc(p.role_hint)} · ${p.steps.length} steps</span></div>
+          <div class="row"><button class="btn ghost small" onclick="viewPlaybook('${esc(p.id)}')">View</button>
+          <button class="btn ghost small" onclick="deletePlaybook('${esc(p.id)}')">Delete</button></div></div></div>`).join("")
       : "No playbooks yet. Record one above.";
   } catch (e) { $("library").textContent = "Could not load: " + e.message; }
+}
+async function viewPlaybook(id) {
+  try { const { playbook } = await call(`/api/playbooks/${id}`); const card = $("pbCard"); card.hidden = false;
+        card.innerHTML = playbookHtml(playbook, id); card.scrollIntoView({ behavior: "smooth" }); }
+  catch (e) { alert("Could not open playbook: " + e.message); }
+}
+async function deletePlaybook(id) {
+  if (!confirm("Delete this playbook from the team library?")) return;
+  try { await call(`/api/playbooks/${id}`, { method: "DELETE" }); loadLibrary(); }
+  catch (e) { alert("Could not delete: " + e.message); }
 }
 
 // ---- 2. plan ----
@@ -248,25 +283,47 @@ $("btnPlan").onclick = async (ev) => {
   busy(ev.target, true, "Building plan…");
   $("planOut").innerHTML = '<div class="card muted">Matching the role against your playbook library…</div>';
   try {
-    const { id, plan } = await call("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role_description: $("role").value, days: parseInt($("days").value) || 5 }) });
-    currentPlan = plan; currentPlanId = id; currentIndex = 0; doneSet = new Set();
+    const days = Math.min(Math.max(parseInt($("days").value) || 5, 1), 10);
+    const { id, plan, playbook_titles } = await call("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role_description: $("role").value, days }) });
+    currentPlan = plan; currentPlanId = id; currentIndex = 0; doneSet = new Set(); playbookTitles = playbook_titles || {};
+    const tasks = plan.role_tasks || [], covered = tasks.filter(t => t.playbook_id).length;
+    const IMP = { 3: "Critical", 2: "Regular", 1: "Occasional" };
     $("planOut").innerHTML = `
-      <div class="card"><h2>Coverage: ${plan.coverage_percent}% of the role</h2>
+      <div class="card"><div class="row" style="align-items:flex-end; gap:14px">
+          <div class="big">${plan.coverage_percent}%</div>
+          <div><b>of this role's know-how is recorded</b><br>
+          <span class="muted">${covered} of ${tasks.length} core tasks have a playbook (weighted by importance)</span></div></div>
         <div class="meter"><div style="width:${plan.coverage_percent}%"></div></div>
+        ${tasks.map(t => `<div class="task"><span class="mark ${t.playbook_id ? "yes" : "no"}">${t.playbook_id ? "✓" : "!"}</span>
+          <div style="flex:1">${esc(t.task)}<br><span class="muted">${t.playbook_id ? "Covered by: " + esc(playbookTitles[t.playbook_id] || t.playbook_id) : "Not recorded yet"}</span></div>
+          <span class="imp">${IMP[t.importance] || ""}</span></div>`).join("")}
         <p class="muted">${esc(plan.summary)}</p></div>
       <div class="card"><h2>Missing knowledge (${plan.gaps.length})</h2>
-        <p class="muted">Nobody has recorded these yet. Ask the right person to show them once.</p>
-        ${plan.gaps.map(g => `<div class="gap"><b>${esc(g.topic)}</b><br>${esc(g.why_needed)}<br><span class="muted">Ask: ${esc(g.suggested_recorder)}</span></div>`).join("") || "<p>No gaps found.</p>"}
+        <p class="muted">Nobody has recorded these yet. Ask the right person to show each one once (2–3 minutes).</p>
+        ${plan.gaps.map((g, i) => `<div class="gap"><b>${esc(g.topic)}</b> <span class="imp">· ${IMP[g.importance] || ""} · needed by day ${esc(g.needed_by_day)}</span><br>
+          ${esc(g.why_needed)}<br>
+          <div class="row" style="margin-top:6px"><span class="muted">Ask: <b>${esc(g.suggested_recorder)}</b></span>
+          <button class="btn ghost small" onclick="copyAsk(${i}, this)">Copy request</button></div></div>`).join("") || "<p>No gaps found. 🎉</p>"}
       </div>
-      <div class="card"><h2>Plan</h2>${plan.items.map(itemHtml).join("")}
-        <button class="btn" onclick="document.querySelector('[data-tab=onboard]').click(); renderOnboard();">Open as the new hire</button></div>`;
+      <div class="card"><h2>Day-by-day plan</h2>${plan.items.map((it, i) =>
+          (i === 0 || plan.items[i - 1].day !== it.day ? `<div class="day-head">Day ${it.day}</div>` : "") + itemHtml(it, i)).join("")}
+        <button class="btn" style="margin-top:10px" onclick="document.querySelector('[data-tab=onboard]').click(); renderOnboard();">Open as the new hire</button></div>`;
   } catch (e) { $("planOut").innerHTML = `<div class="card">Plan failed: ${esc(e.message)}</div>`; }
   busy(ev.target, false, "Generate plan + find gaps");
 };
+function copyAsk(i, btn) {
+  const g = currentPlan.gaps[i];
+  const text = `Hi! We're onboarding a new ${currentPlan.role} and nobody has recorded "${g.topic}" yet. ` +
+    `Could you record a 2–3 minute FirstRung capture of you doing it, explaining each step out loud? ` +
+    `They'll need it by day ${g.needed_by_day}. Thank you!`;
+  navigator.clipboard.writeText(text).then(() => { btn.textContent = "Copied ✓"; setTimeout(() => btn.textContent = "Copy request", 2000); },
+                                           () => prompt("Copy this message:", text));
+}
 const itemHtml = (it, i) => `<div class="item ${i === currentIndex ? "current" : ""} ${doneSet.has(i) ? "done" : ""}">
   <span class="pill">Day ${it.day}</span><span class="pill">${esc(it.kind)}</span><b>${esc(it.title)}</b><br>
-  <span class="muted">${esc(it.detail)}</span></div>`;
+  <span class="muted">${esc(it.detail)}</span>
+  ${it.playbook_id ? `<br><span class="muted">Playbook: ${esc(playbookTitles[it.playbook_id] || it.playbook_id)}</span>` : ""}</div>`;
 
 // ---- 3. new hire + branching ----
 function renderOnboard(message) {

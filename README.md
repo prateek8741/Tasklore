@@ -30,13 +30,20 @@ The API is the product; the web app is only the first client. Every endpoint exc
 | `GET /api/health` | Infra check, no login: Cloud Run is up, Gemini mode, Firestore reachable |
 | `GET /api/me` | Login check: who is signed in (also saves the user profile) |
 | `GET /api/hello` | Infra check: one real Gemini call, end to end |
-| `POST /api/capture` | Screen recording (multipart `file`, optional `hint`) → structured playbook |
-| `GET /api/playbooks` | The team's playbook library |
+| `POST /api/capture` | Screen recording (multipart `file`, optional `hint`) → structured playbook. The web app calls the Cloud Run URL directly for this one (it can take longer than Hosting's 60 s limit) |
+| `GET /api/playbooks` | The team's playbook library, newest first |
+| `GET /api/playbooks/{id}` · `DELETE /api/playbooks/{id}` | One playbook / remove it |
 | `POST /api/plan` | `{role_description, days}` → onboarding plan, coverage %, **gap report** |
 | `GET /api/plans/{id}` | Fetch a plan |
 | `POST /api/session` | `{plan_id, item_index, outcome: done/stuck/already_know, note}` → next step (branching) |
 
 Interactive API docs are at `/docs` on the Cloud Run URL.
+
+### How gap detection works
+
+1. Gemini reads the role description and lists the role's 5–10 core tasks, each with an importance (critical / regular / occasional), the day it is first needed, and who should record it.
+2. For each task it names the library playbook that actually teaches it, or none. The API discards any playbook ID that doesn't exist.
+3. **Coverage is computed by the API, not guessed by the model**: the importance-weighted share of core tasks that have a playbook. Uncovered tasks become the gap report, most important first, and the plan schedules a "shadow" session before each one is needed.
 
 ## Repository layout
 

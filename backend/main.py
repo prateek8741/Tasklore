@@ -8,9 +8,11 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   GET  /api/health          infra check, no AI, no login
   GET  /api/me              who is signed in (login check)
   GET  /api/hello           infra check, one real Gemini call
-  POST /api/capture         screen recording -> playbook
-  GET  /api/playbooks       list the team's playbook library
-  POST /api/plan            role description -> onboarding plan + gap report
+  POST /api/capture         screen recording -> playbook (call the Cloud Run URL directly: can exceed 60 s)
+  GET  /api/playbooks       list the team's playbook library (newest first)
+  GET  /api/playbooks/{id}  one playbook
+  DELETE /api/playbooks/{id}  remove a playbook
+  POST /api/plan            role description -> onboarding plan + computed coverage + gap report
   GET  /api/plans/{id}      fetch a plan
   POST /api/session         new hire reports done / stuck / already_know -> plan branches
 """
@@ -28,7 +30,7 @@ import auth
 import gemini
 import mock_data
 import prompts
-from schemas import OnboardingPlan, Playbook, PlanRequest, SessionRequest, SessionResponse
+from schemas import PlanDraft, Playbook, PlanRequest, SessionRequest, SessionResponse
 from store import store
 
 logging.basicConfig(level=logging.INFO)
@@ -48,7 +50,7 @@ def gemini_failed(_request, exc: gemini.GeminiError):
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
-MAX_VIDEO_MB = 25  # inline upload limit; Cloud Run requests cap at 32 MB
+MAX_VIDEO_MB = 25  # Cloud Run requests cap at 32 MB
 SignedIn = Depends(auth.current_user)  # add to a route to require login
 
 
@@ -92,51 +94,110 @@ def hello():
 
 
 # ---------------- capture ----------------
-@app.post("/api/capture", dependencies=[SignedIn])
-async def capture(file: UploadFile = File(...), hint: str = Form("")):
-    data = await file.read()
+# A plain `def` runs in a worker thread, so a 30-60 s Gemini call doesn't block other requests.
+@app.post("/api/capture")
+def capture(file: UploadFile = File(...), hint: str = Form("", max_length=500), user: dict = SignedIn):
+    data = file.file.read()
+    if not data:
+        raise HTTPException(400, "The video is empty. Record again and stop the recording before uploading.")
     if len(data) > MAX_VIDEO_MB * 1024 * 1024:
         raise HTTPException(413, f"Video too large; keep recordings under {MAX_VIDEO_MB} MB (about 2-3 minutes).")
     mime = (file.content_type or "video/webm").split(";")[0]
+    if not mime.startswith("video/"):
+        raise HTTPException(415, "Please upload a video file (WebM or MP4).")
 
+    t = time.time()
     if gemini.is_mock():
         playbook, model = mock_data.MOCK_PLAYBOOK, "mock"
     else:
-        user = prompts.CAPTURE_USER.format(hint=f" Context from the recorder: {hint}" if hint else "")
-        model, resp = gemini.generate([gemini.video_part(data, mime), user],
+        prompt = prompts.CAPTURE_USER.format(hint=f" Context from the recorder: {hint}" if hint else "")
+        model, resp = gemini.generate([gemini.video_part(data, mime), prompt],
                                       schema=Playbook, system=prompts.CAPTURE_SYSTEM)
         playbook = _parsed(resp, Playbook)
 
-    pb_id = store.put("playbooks", {**playbook, "created_at": time.time()})
-    return {"id": pb_id, "model": model, "playbook": playbook}
+    doc = {**playbook, "created_at": time.time(), "created_by": _who(user),
+           "source": {"filename": file.filename, "size_mb": round(len(data) / 1048576, 1)}}
+    pb_id = store.put("playbooks", doc)
+    return {"id": pb_id, "model": model, "ms": int((time.time() - t) * 1000), "playbook": doc}
+
+
+def _who(user: dict) -> dict:
+    return {"uid": user["uid"], "email": user.get("email", ""), "name": user.get("name", "")}
 
 
 @app.get("/api/playbooks", dependencies=[SignedIn])
 def list_playbooks():
-    return {"playbooks": [{"id": k, **v} for k, v in store.list("playbooks").items()]}
+    items = [{"id": k, **v} for k, v in store.list("playbooks").items()]
+    items.sort(key=lambda p: p.get("created_at", 0), reverse=True)
+    return {"playbooks": items}
+
+
+@app.get("/api/playbooks/{playbook_id}", dependencies=[SignedIn])
+def get_playbook(playbook_id: str):
+    pb = store.get("playbooks", playbook_id)
+    if not pb:
+        raise HTTPException(404, "Playbook not found")
+    return {"id": playbook_id, "playbook": pb}
+
+
+@app.delete("/api/playbooks/{playbook_id}", dependencies=[SignedIn])
+def delete_playbook(playbook_id: str):
+    if not store.get("playbooks", playbook_id):
+        raise HTTPException(404, "Playbook not found")
+    store.delete("playbooks", playbook_id)
+    return {"deleted": playbook_id}
 
 
 # ---------------- plan + gaps ----------------
-@app.post("/api/plan", dependencies=[SignedIn])
-def make_plan(req: PlanRequest):
-    library = store.list("playbooks")
-    if gemini.is_mock():
-        plan, model = mock_data.mock_plan(req.role_description, req.days, library), "mock"
-    else:
-        lib_text = "\n".join(
-            f"{pid}: {p['title']} - {p['goal']} - {', '.join(p.get('tools', []))}" for pid, p in library.items()
-        ) or "(empty: no playbooks recorded yet)"
-        model, resp = gemini.generate(
-            prompts.PLAN_USER.format(role=req.role_description, days=req.days, library=lib_text),
-            schema=OnboardingPlan, system=prompts.PLAN_SYSTEM)
-        plan = _parsed(resp, OnboardingPlan)
-        # Drop any playbook IDs the model invented.
-        for item in plan["items"]:
-            if item["playbook_id"] not in library:
-                item["playbook_id"] = ""
+def _library_text(library: dict) -> str:
+    if not library:
+        return "(empty: no playbooks recorded yet)"
+    return "\n".join(
+        f"- id={pid} | {p['title']} | goal: {p['goal']} | role: {p.get('role_hint', '')} | "
+        f"tools: {', '.join(p.get('tools', []))} | skills: {', '.join(p.get('skills', []))} | "
+        f"steps: {'; '.join(s['title'] for s in p.get('steps', []))}"
+        for pid, p in library.items())
 
-    plan_id = store.put("plans", {**plan, "role_description": req.role_description, "created_at": time.time()})
-    return {"id": plan_id, "model": model, "plan": plan}
+
+def finish_plan(draft: dict, library: dict) -> dict:
+    """Turn Gemini's draft into the final plan. Coverage and gaps are computed here, not guessed by the model:
+    coverage = importance-weighted share of the role's core tasks that a real library playbook teaches."""
+    for item in draft["items"]:
+        if item["playbook_id"] not in library:  # drop IDs the model invented
+            item["playbook_id"] = ""
+    for t in draft["role_tasks"]:
+        if t["playbook_id"] not in library:
+            t["playbook_id"] = ""
+        t["importance"] = min(max(int(t["importance"]), 1), 3)
+
+    total = sum(t["importance"] for t in draft["role_tasks"]) or 1
+    covered = sum(t["importance"] for t in draft["role_tasks"] if t["playbook_id"])
+    gaps = sorted(({"topic": t["task"], "why_needed": t["why_needed"], "suggested_recorder": t["suggested_recorder"],
+                    "importance": t["importance"], "needed_by_day": t["needed_by_day"]}
+                   for t in draft["role_tasks"] if not t["playbook_id"]),
+                  key=lambda g: (-g["importance"], g["needed_by_day"]))
+    draft["items"].sort(key=lambda i: i["day"])
+    return {**draft, "coverage_percent": round(100 * covered / total), "gaps": gaps}
+
+
+@app.post("/api/plan")
+def make_plan(req: PlanRequest, user: dict = SignedIn):
+    library = store.list("playbooks")
+    t = time.time()
+    if gemini.is_mock():
+        draft, model = mock_data.mock_plan(req.role_description, req.days, library), "mock"
+    else:
+        model, resp = gemini.generate(
+            prompts.PLAN_USER.format(role=req.role_description, days=req.days, library=_library_text(library)),
+            schema=PlanDraft, system=prompts.PLAN_SYSTEM)
+        draft = _parsed(resp, PlanDraft)
+
+    plan = finish_plan(draft, library)
+    plan_id = store.put("plans", {**plan, "role_description": req.role_description, "days": req.days,
+                                  "created_at": time.time(), "created_by": _who(user)})
+    titles = {pid: p["title"] for pid, p in library.items()}  # lets clients show playbook names
+    return {"id": plan_id, "model": model, "ms": int((time.time() - t) * 1000), "plan": plan,
+            "playbook_titles": titles}
 
 
 @app.get("/api/plans/{plan_id}", dependencies=[SignedIn])
