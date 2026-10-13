@@ -108,6 +108,16 @@
       <span class="muted small">Drag a video here or click to choose. MP4 or WebM, up to 25 MB.</span>
     </div>
   </div>
+  <div class="card">
+    <label for="ytUrl">Import from YouTube</label>
+    <div class="row">
+      <input type="text" id="ytUrl" inputmode="url" autocomplete="off" style="flex:1; min-width:220px"
+             placeholder="Paste a video or playlist link, e.g. https://youtu.be/...">
+      <button class="btn" id="btnYt">Find videos</button>
+    </div>
+    <p class="small muted" style="margin-top:8px">Public videos only. Each video becomes its own playbook. Only import videos your team is allowed to use.</p>
+    <div id="ytOut" aria-live="polite"></div>
+  </div>
   <div id="capOut" aria-live="polite"></div>
   <div class="section-head"><h2>Team playbook library</h2><span class="muted" id="libCount"></span></div>
   <div id="library" class="lib-grid"><div class="skel block"></div><div class="skel block"></div></div>

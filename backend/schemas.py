@@ -25,6 +25,16 @@ class Playbook(BaseModel):
     narration_language: str = Field(description="Language the narrator spoke, e.g. 'English', 'Hindi', 'Hinglish', or 'none'")
 
 
+class YouTubeResolveRequest(BaseModel):
+    url: str = Field(min_length=5, max_length=500)
+    whole_playlist: bool = False  # for a link to a video inside a playlist: list the playlist instead
+
+
+class YouTubeCaptureRequest(BaseModel):
+    video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
+    hint: str = Field(default="", max_length=300)
+
+
 # ---------- Plan: a role description becomes an onboarding plan + gap report ----------
 class RoleTask(BaseModel):
     task: str = Field(description="One core task or knowledge area this role needs, specific enough to record as a 2-3 minute video")

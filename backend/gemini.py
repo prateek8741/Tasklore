@@ -80,6 +80,11 @@ def generate(contents, schema=None, system: str | None = None):
     raise GeminiError(f"All Gemini models failed. Last error: {last_err}")
 
 
+def youtube_part(url: str):
+    """Gemini watches a public YouTube video straight from its URL; nothing is downloaded."""
+    return types.Part.from_uri(file_uri=url, mime_type="video/*")
+
+
 INLINE_VIDEO_LIMIT = 15 * 1024 * 1024  # bigger videos would push the request past Gemini's inline limit
 
 

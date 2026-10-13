@@ -183,7 +183,7 @@ $("#btnStop").onclick = () => recorder && recorder.state === "recording" && reco
 
 const drop = $("#drop");
 drop.onclick = () => $("#file").click();
-drop.onkeydown = e => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), $("#file").click());
+drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#file").click(); } };
 $("#file").onchange = e => { const f = e.target.files[0]; if (f) sendVideo(f, f.name); e.target.value = ""; };
 drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
 drop.ondragleave = () => drop.classList.remove("over");
@@ -226,8 +226,81 @@ async function sendVideo(blob, name) {
   }
 }
 
+// ---------------- import from YouTube ----------------
+// 1) resolve the link into videos (no Gemini cost), 2) the user picks, 3) one playbook per video, one after another.
+const MAX_YT = 10;
+const secsOf = (ts) => String(ts).split(":").map(Number).reduce((a, n) => a * 60 + (n || 0), 0);
+const ytThumb = (id) => `https://i.ytimg.com/vi/${encodeURIComponent(id)}/mqdefault.jpg`;
+
+$("#btnYt").onclick = () => findYouTube(false);
+$("#ytUrl").onkeydown = e => { if (e.key === "Enter") findYouTube(false); };  // a handler returning false would swallow typing
+
+async function findYouTube(wholePlaylist) {
+  const url = $("#ytUrl").value.trim(), btn = $("#btnYt");
+  if (!url) return $("#ytUrl").focus();
+  btn.disabled = true; btn.textContent = "Finding…";
+  $("#ytOut").innerHTML = skeleton(2);
+  try {
+    state.yt = await postJSON("/api/youtube/resolve", { url, whole_playlist: wholePlaylist });
+    state.yt.status = {};
+    let picked = 0;   // pre-select importable videos, up to the limit
+    state.yt.videos.forEach(v => v.pick = !v.in_library && !v.problem && picked++ < MAX_YT);
+    renderYouTube();
+  } catch (e) { $("#ytOut").innerHTML = `<p class="field-note">${esc(e.message)}</p>`; }
+  btn.disabled = false; btn.textContent = "Find videos";
+}
+
+function renderYouTube() {
+  const y = state.yt, busy = !!y.running, n = y.videos.filter(v => v.pick).length;
+  const head = y.kind === "playlist"
+    ? `<b>${esc(y.title)}</b> <span class="small muted">${y.videos.length} videos${y.total > y.videos.length ? ` (first ${y.videos.length} of ${y.total})` : ""}</span>`
+    : `<b>1 video</b>${y.also_playlist ? ` <button class="btn sm ghost" data-yt-playlist ${busy ? "disabled" : ""}>Show the whole playlist instead</button>` : ""}`;
+  $("#ytOut").innerHTML = `<div class="yt-head"><div>${head}</div></div>
+    ${y.videos.map((v, i) => {
+      const st = y.status[v.video_id], off = v.in_library || v.problem;
+      const status = st ? st.html : v.in_library ? `<span class="chip good">Already in library</span>` : v.problem ? `<span class="chip warn">${esc(v.problem)}</span>` : "";
+      return `<div class="yt-row ${off ? "off" : ""}">
+        <input type="checkbox" data-yt-pick="${i}" ${v.pick ? "checked" : ""} ${off || busy ? "disabled" : ""} aria-label="Import ${esc(v.title)}">
+        <img src="${ytThumb(v.video_id)}" alt="" loading="lazy">
+        <div class="t"><b title="${esc(v.title)}">${esc(v.title)}</b><span class="small muted">${esc(v.channel)}${v.duration_s ? `, ${fmtTime(v.duration_s)}` : ""}</span></div>
+        <div class="st-col small">${status}</div></div>`; }).join("")}
+    <div class="yt-foot"><span class="small muted">${n > MAX_YT ? `<span class="field-note">Pick at most ${MAX_YT} videos per import.</span>` : n ? `${n} selected. Each takes about 15 to 60 seconds.` : "Tick the videos to turn into playbooks."}</span>
+      <button class="btn primary" data-yt-import ${busy || !n || n > MAX_YT ? "disabled" : ""}>${busy ? "Creating playbooks…" : n ? `Create ${n} playbook${n === 1 ? "" : "s"}` : "Create playbooks"}</button></div>`;
+}
+
+async function importYouTube() {
+  const y = state.yt, queue = y.videos.filter(v => v.pick);
+  y.running = true; let ok = 0;
+  const hint = $("#hint").value.trim();
+  for (const v of queue) {
+    const started = Date.now();
+    const tick = () => { y.status[v.video_id] = { html: `<span class="chip brand">Gemini is watching, ${Math.round((Date.now() - started) / 1000)} s</span>` }; renderYouTube(); };
+    tick(); const timer = setInterval(tick, 1000);
+    try {
+      const r = await call("/api/capture/youtube", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: v.video_id, hint }) }, DIRECT_API);
+      ok++; v.pick = false; v.in_library = r.id;
+      y.status[v.video_id] = { html: `<span class="chip good">Done</span> <button class="btn sm ghost" data-view-pb="${esc(r.id)}">View</button>` };
+      loadLibrary();
+    } catch (e) {
+      y.status[v.video_id] = { html: `<span class="chip bad" title="${esc(e.message)}">Failed</span> <span class="small muted">${esc(e.message)}</span>` };
+    }
+    clearInterval(timer); renderYouTube();
+  }
+  y.running = false; renderYouTube();
+  if (ok) {
+    toast(`${ok} playbook${ok === 1 ? "" : "s"} created from YouTube.`, "good", 6000);
+    $("#ytOut").insertAdjacentHTML("beforeend", `<div class="row" style="justify-content:space-between; margin-top:12px">
+      <span class="small">Did these fill a gap? Plans built earlier don't update by themselves.</span><a class="btn sm" href="#plan">Re-check your plans</a></div>`);
+  }
+}
+
 function playbookCard(p, id, { preview, footer, closable } = {}) {
-  const by = p.created_by?.name ? `Recorded by ${esc(p.created_by.name)}` : "";
+  const yt = p.source?.type === "youtube" ? p.source : null;
+  const by = yt ? `From YouTube: <a href="${esc(yt.url)}" target="_blank" rel="noopener">${esc(yt.title)}</a> by ${esc(yt.channel)}. Imported by ${esc(p.created_by?.name || "a teammate")}`
+           : p.created_by?.name ? `Recorded by ${esc(p.created_by.name)}` : "";
+  const tsHtml = (s) => yt ? `<a class="ts" href="${esc(yt.url)}&t=${secsOf(s.timestamp)}s" target="_blank" rel="noopener" title="Open this moment on YouTube">${esc(s.timestamp)}</a>`
+           : preview ? `<button class="ts" data-seek="${esc(s.timestamp)}" title="Jump to this moment">${esc(s.timestamp)}</button>` : `<span class="ts">${esc(s.timestamp)}</span>`;
   return `<div class="card" id="pb-${esc(id)}">
     <div class="pb-head"><div><h2>${esc(p.title)}</h2><p class="muted">${esc(p.goal)}</p></div>
       ${closable ? `<button class="btn sm ghost" data-action="close-playbook">Close</button>` : ""}</div>
@@ -235,14 +308,14 @@ function playbookCard(p, id, { preview, footer, closable } = {}) {
       ${p.estimated_minutes ? `<span class="chip">~${esc(p.estimated_minutes)} min</span>` : ""}
       ${p.narration_language && p.narration_language !== "English" ? `<span class="chip warn">Narrated in ${esc(p.narration_language)}</span>` : ""}</div>
     ${preview ? `<video class="pb-video" src="${preview}" controls preload="metadata"></video>` : ""}
-    <ol class="timeline">${p.steps.map(s => `<li><b>${esc(s.title)}</b>${preview ? `<button class="ts" data-seek="${esc(s.timestamp)}" title="Jump to this moment">${esc(s.timestamp)}</button>` : `<span class="ts">${esc(s.timestamp)}</span>`}
+    <ol class="timeline">${p.steps.map(s => `<li><b>${esc(s.title)}</b>${tsHtml(s)}
       <div>${esc(s.action)}</div><div class="why">Why: ${esc(s.why)}</div></li>`).join("")}</ol>
     <div class="lists">
       <div class="warn"><h3>Watch out for</h3><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>
       <div class="good"><h3>Done right when</h3><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>
     </div>
     ${(p.skills || []).length ? `<p class="small muted" style="margin-top:12px">Skills: ${p.skills.map(esc).join(", ")}</p>` : ""}
-    <p class="small muted">${[by, footer].filter(Boolean).join(". ")}</p></div>`;
+    <p class="small muted">${[by, footer && esc(footer)].filter(Boolean).join(". ")}</p></div>`;
 }
 
 async function loadLibrary() {
@@ -254,7 +327,8 @@ async function loadLibrary() {
         <h3>${esc(p.title)}</h3>
         <span class="small muted">${esc(p.role_hint)}, ${p.steps.length} steps${p.estimated_minutes ? `, about ${esc(p.estimated_minutes)} min` : ""}</span>
         <div>${(p.skills || []).slice(0, 4).map(s => `<span class="chip">${esc(s)}</span>`).join("")}</div>
-        ${p.created_by?.name ? `<span class="small muted">by ${esc(p.created_by.name)}</span>` : ""}
+        ${p.source?.type === "youtube" ? `<span class="small muted">From YouTube, ${esc(p.source.channel)}</span>`
+          : p.created_by?.name ? `<span class="small muted">by ${esc(p.created_by.name)}</span>` : ""}
         <div class="actions"><button class="btn sm" data-view-pb="${esc(p.id)}">View</button>
           <button class="btn sm ghost" data-del-pb="${esc(p.id)}" aria-label="Delete ${esc(p.title)}">Delete</button></div></div>`).join("")
       : `<div class="empty" style="grid-column:1/-1">No playbooks yet. Record the first task above; it takes about two minutes.</div>`;
@@ -458,6 +532,11 @@ $$("[data-check]").forEach(b => b.onclick = async () => {
   b.disabled = false; b.textContent = label;
 });
 
+document.addEventListener("change", (e) => {
+  const i = e.target.dataset?.ytPick;
+  if (i !== undefined) { state.yt.videos[+i].pick = e.target.checked; renderYouTube(); }
+});
+
 // ---------------- clicks on dynamic content ----------------
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button, a"); if (!t) return;
@@ -471,6 +550,8 @@ document.addEventListener("click", (e) => {
   else if (d.delPb) deletePlaybook(d.delPb, t);
   else if (d.copyGap) copyGap(+d.copyGap);
   else if (d.recheck) recheckPlan(d.recheck, t);
+  else if (d.ytImport !== undefined) importYouTube();
+  else if (d.ytPlaylist !== undefined) findYouTube(true);
   else if (d.openPlan) { remember(d.openPlan); state.plan = null; }   // the #learn link then opens it
   else if (d.outcome) report(d.outcome, t);
   else if (d.seek) {
