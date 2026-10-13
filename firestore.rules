@@ -7,8 +7,8 @@ rules_version = '2';
 // Collections (written by the API):
 //   users/{uid}         email, name, last_seen              (from /api/me)
 //   playbooks/{id}      title, goal, steps, gotchas, ...    (from /api/capture)
-//   plans/{id}          role, items, gaps, coverage_percent (from /api/plan)
-//   events/{id}         plan_id, item_index, outcome, note  (from /api/session)
+//   plans/{id}          role, role_tasks, items, gaps, coverage_percent (from /api/plan)
+//                       + progress: status per item, current item, log of done/skip/stuck (from /api/session)
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {

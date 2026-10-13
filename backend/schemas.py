@@ -82,6 +82,8 @@ class SessionRequest(BaseModel):
 
 
 class SessionResponse(BaseModel):
-    branch: str
-    next_item_index: int | None
+    branch: str  # next | skip | hint
+    next_item_index: int | None  # None = plan complete
     message: str
+    progress: dict  # status per item + log; same shape as plan["progress"]
+    summary: dict  # counts and percent complete

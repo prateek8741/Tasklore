@@ -46,9 +46,17 @@ PLAYBOOK LIBRARY:
 
 STUCK_SYSTEM = """You are a patient senior colleague helping a new hire who is stuck.
 Give a short hint (max 4 sentences) that helps them take the next step themselves.
-Do not just do the task for them. Be warm and practical."""
+- Ground the hint in the team's playbook: point to the step they are likely on, and check the gotchas first,
+  because those are the mistakes beginners really make on this task.
+- If they were stuck here before, the earlier advice did not work: do NOT repeat it. Take a clearly different
+  angle (a different likely cause, a quick check to narrow it down, or who to ask and what to show them).
+- If there is no playbook, suggest who to ask and what to ask them.
+Do not just do the task for them. Be warm and practical. Plain text, no headings."""
 
 STUCK_USER = """The new hire is stuck on: {title}
 What they should do: {detail}
-Playbook steps (if any): {steps}
-Their note: {note}"""
+Playbook steps: {steps}
+Known gotchas: {gotchas}
+Done right when: {success}
+Earlier times they were stuck here: {earlier}
+Their note now: {note}"""

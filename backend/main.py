@@ -13,8 +13,9 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   GET  /api/playbooks/{id}  one playbook
   DELETE /api/playbooks/{id}  remove a playbook
   POST /api/plan            role description -> onboarding plan + computed coverage + gap report
-  GET  /api/plans/{id}      fetch a plan
-  POST /api/session         new hire reports done / stuck / already_know -> plan branches
+  GET  /api/plans           manager view: all plans with progress
+  GET  /api/plans/{id}      one plan with its saved progress (resume after refresh)
+  POST /api/session         new hire reports done / stuck / already_know -> plan adapts, progress saved
 """
 import json
 import logging
@@ -193,6 +194,7 @@ def make_plan(req: PlanRequest, user: dict = SignedIn):
         draft = _parsed(resp, PlanDraft)
 
     plan = finish_plan(draft, library)
+    plan["progress"] = _new_progress(len(plan["items"]))
     plan_id = store.put("plans", {**plan, "role_description": req.role_description, "days": req.days,
                                   "created_at": time.time(), "created_by": _who(user)})
     titles = {pid: p["title"] for pid, p in library.items()}  # lets clients show playbook names
@@ -200,56 +202,120 @@ def make_plan(req: PlanRequest, user: dict = SignedIn):
             "playbook_titles": titles}
 
 
+# ---------------- progress: stored on the plan, so it survives refreshes and devices ----------------
+# progress.status[i] is "" (to do), "done", "skipped" or "stuck" for plan item i.
+FINISHED = ("done", "skipped")
+
+
+def _new_progress(n: int) -> dict:
+    return {"status": [""] * n, "current": 0 if n else None, "log": [], "updated_at": None}
+
+
+def _progress(plan: dict) -> dict:
+    """Progress of a plan; plans made before progress existed get a fresh one."""
+    p = plan.get("progress") or _new_progress(len(plan["items"]))
+    if len(p["status"]) != len(plan["items"]):
+        p["status"] = (p["status"] + [""] * len(plan["items"]))[:len(plan["items"])]
+    return p
+
+
+def _summary(p: dict) -> dict:
+    s = p["status"]
+    finished = sum(x in FINISHED for x in s)
+    return {"total": len(s), "done": s.count("done"), "skipped": s.count("skipped"),
+            "stuck_now": s.count("stuck"), "stuck_events": sum(e["outcome"] == "stuck" for e in p["log"]),
+            "percent": round(100 * finished / len(s)) if s else 100, "complete": bool(s) and finished == len(s),
+            "updated_at": p.get("updated_at")}
+
+
+def _next_open(status: list, after: int) -> int | None:
+    """First unfinished item after `after`, else the first unfinished one anywhere, else None (plan complete)."""
+    order = list(range(after + 1, len(status))) + list(range(0, after + 1))
+    return next((i for i in order if status[i] not in FINISHED), None)
+
+
+@app.get("/api/plans", dependencies=[SignedIn])
+def list_plans():
+    """Manager view: every onboarding plan with its progress, newest first."""
+    out = [{"id": pid, "role": p["role"], "coverage_percent": p.get("coverage_percent"),
+            "created_at": p.get("created_at"), "created_by": p.get("created_by"),
+            "gaps": len(p.get("gaps", [])), "progress": _summary(_progress(p))}
+           for pid, p in store.list("plans").items()]
+    out.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
+    return {"plans": out}
+
+
 @app.get("/api/plans/{plan_id}", dependencies=[SignedIn])
 def get_plan(plan_id: str):
     plan = store.get("plans", plan_id)
     if not plan:
         raise HTTPException(404, "Plan not found")
-    return {"id": plan_id, "plan": plan}
+    plan["progress"] = _progress(plan)
+    titles = {pid: store.get("playbooks", pid).get("title", pid)
+              for pid in {i["playbook_id"] for i in plan["items"] if i["playbook_id"]}
+              if store.get("playbooks", pid)}
+    return {"id": plan_id, "plan": plan, "summary": _summary(plan["progress"]), "playbook_titles": titles}
 
 
-# ---------------- session: the plan branches ----------------
-@app.post("/api/session", response_model=SessionResponse, dependencies=[SignedIn])
-def session(req: SessionRequest):
+# ---------------- session: the new hire reports progress, the plan adapts ----------------
+@app.post("/api/session", response_model=SessionResponse)
+def session(req: SessionRequest, user: dict = SignedIn):
     plan = store.get("plans", req.plan_id)
     if not plan:
         raise HTTPException(404, "Plan not found")
     items = plan["items"]
     if not 0 <= req.item_index < len(items):
         raise HTTPException(400, "item_index out of range")
-    item = items[req.item_index]
-
-    store.put("events", {"plan_id": req.plan_id, "item_index": req.item_index,
-                         "outcome": req.outcome, "note": req.note, "at": time.time()})
+    item, i = items[req.item_index], req.item_index
+    prog = _progress(plan)
+    status = prog["status"]
+    entry = {"at": time.time(), "item_index": i, "outcome": req.outcome, "note": req.note[:500],
+             "by": user.get("email", "")}
 
     if req.outcome == "done":
-        nxt = req.item_index + 1
-        return SessionResponse(branch="next", next_item_index=nxt if nxt < len(items) else None,
-                               message="Nice work. On to the next item." if nxt < len(items) else "Plan complete!")
+        status[i] = "done"
+        nxt = _next_open(status, i)
+        branch, message = "next", ("Nice work. On to the next item." if nxt is not None else "Plan complete! 🎉")
 
-    if req.outcome == "already_know":
-        # Skip the rest of this topic: jump past every following item that uses the same playbook.
-        nxt = req.item_index + 1
+    elif req.outcome == "already_know":
+        # Skip the whole topic: this item and every later item that uses the same playbook.
         pb = item.get("playbook_id")
-        while pb and nxt < len(items) and items[nxt].get("playbook_id") == pb:
-            nxt += 1
-        return SessionResponse(branch="skip", next_item_index=nxt if nxt < len(items) else None,
-                               message="Skipped ahead since you already know this.")
+        skipped = [j for j in range(i, len(items)) if j == i or (pb and items[j].get("playbook_id") == pb)]
+        for j in skipped:
+            if status[j] not in FINISHED:
+                status[j] = "skipped"
+        entry["skipped"] = skipped
+        nxt = _next_open(status, i)
+        titles = ", ".join(f'"{items[j]["title"]}"' for j in skipped)
+        branch, message = "skip", f"Skipped {titles}, since you already know this."
 
-    if req.outcome == "stuck":
+    else:  # stuck: stay on this item and give a hint grounded in the playbook
+        status[i] = "stuck"
+        nxt = i
         pb = store.get("playbooks", item["playbook_id"]) if item.get("playbook_id") else None
-        steps = "; ".join(f"{s['title']}: {s['action']}" for s in pb["steps"]) if pb else "none"
+        before = [e for e in prog["log"] if e["item_index"] == i and e["outcome"] == "stuck"]
+        earlier = [f'they said "{e["note"] or "(nothing)"}", you advised: {e.get("hint", "")[:400]}' for e in before]
         if gemini.is_mock():
             hint = mock_data.MOCK_HINT
         else:
-            _, resp = gemini.generate(
-                prompts.STUCK_USER.format(title=item["title"], detail=item["detail"], steps=steps,
-                                          note=req.note or "(no note)"),
+            _, resp = gemini.generate(prompts.STUCK_USER.format(
+                title=item["title"], detail=item["detail"],
+                steps="; ".join(f"{s['title']}: {s['action']}" for s in pb["steps"]) if pb else "(no playbook)",
+                gotchas="; ".join(pb.get("gotchas", [])) if pb else "(none)",
+                success="; ".join(pb.get("success_criteria", [])) if pb else "(none)",
+                earlier=" | ".join(earlier) or "(none)", note=req.note or "(no note)"),
                 system=prompts.STUCK_SYSTEM)
             hint = resp.text
-        return SessionResponse(branch="hint", next_item_index=req.item_index, message=hint)
+        entry["hint"] = hint
+        branch, message = "hint", hint
 
-    raise HTTPException(400, "outcome must be done, stuck or already_know")
+    prog["current"] = nxt
+    prog["log"] = (prog["log"] + [entry])[-100:]
+    prog["updated_at"] = entry["at"]
+    plan["progress"] = prog
+    store.put("plans", plan, doc_id=req.plan_id)
+    return SessionResponse(branch=branch, next_item_index=nxt, message=message, progress=prog,
+                           summary=_summary(prog))
 
 
 # Local dev convenience: serve the web app from the same server.

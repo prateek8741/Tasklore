@@ -34,8 +34,9 @@ The API is the product; the web app is only the first client. Every endpoint exc
 | `GET /api/playbooks` | The team's playbook library, newest first |
 | `GET /api/playbooks/{id}` · `DELETE /api/playbooks/{id}` | One playbook / remove it |
 | `POST /api/plan` | `{role_description, days}` → onboarding plan, coverage %, **gap report** |
-| `GET /api/plans/{id}` | Fetch a plan |
-| `POST /api/session` | `{plan_id, item_index, outcome: done/stuck/already_know, note}` → next step (branching) |
+| `GET /api/plans` | Manager view: every plan with progress (% through, done, skipped, times stuck) |
+| `GET /api/plans/{id}` | One plan with its saved progress, so the new hire resumes after a refresh or on another device |
+| `POST /api/session` | `{plan_id, item_index, outcome: done/stuck/already_know, note}` → the plan adapts and progress is saved. "Already know" skips the whole topic (every later item using the same playbook); "stuck" returns a hint grounded in that playbook's steps and gotchas, and tries a new angle if earlier advice didn't help |
 
 Interactive API docs are at `/docs` on the Cloud Run URL.
 
@@ -119,7 +120,8 @@ Note: a project linked to a billing account uses the Gemini API paid tier, which
 
 - Videos are sent inline: keep recordings under ~25 MB (2–3 minutes).
 - Requests through Firebase Hosting time out after 60 seconds; long video captures should call the Cloud Run URL directly.
-- One shared workspace: every signed-in user sees the same playbook library.
+- One shared workspace: every signed-in user sees the same playbook library and plans.
+- One new hire per plan: progress is stored on the plan itself.
 
 ## Google tools used
 

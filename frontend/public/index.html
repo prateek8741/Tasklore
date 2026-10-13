@@ -54,6 +54,13 @@
   .imp { font-size: 12px; color: var(--muted); white-space: nowrap; }
   .big { font-size: 34px; font-weight: 700; line-height: 1.1; }
   .day-head { margin: 14px 0 2px; font-weight: 600; }
+  .item.skipped { opacity: .55; } .item.skipped b { text-decoration: line-through; }
+  .item.stuck { border-color: var(--warn); }
+  .st { display: inline-block; width: 18px; font-weight: 700; }
+  .st.done { color: var(--good); } .st.stuck { color: var(--warn); } .st.skipped { color: var(--muted); }
+  .steps-box { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 14px; }
+  select { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+  .meter.small { height: 6px; margin: 4px 0; }
 </style>
 <script src="config.js"></script><!-- written by deploy.sh: direct Cloud Run URL; absent locally -->
 </head>
@@ -119,11 +126,20 @@
     </div>
   </div>
   <div id="planOut"></div>
+  <div class="card">
+    <h2>Onboarding plans and progress</h2>
+    <p class="muted">Manager view: how far each new hire is, and where they got stuck.</p>
+    <div id="plansList" class="muted">Loading…</div>
+  </div>
 </section>
 
 <!-- 3. New hire -->
 <section id="onboard">
-  <div class="card"><p class="muted" id="onboardEmpty">Generate a plan in step 2 first.</p><div id="onboardOut"></div></div>
+  <div class="card">
+    <div class="row"><label class="muted" for="planPick">Plan</label>
+      <select id="planPick" style="flex:1; min-width:220px"><option value="">Loading plans…</option></select></div>
+  </div>
+  <div class="card"><p class="muted" id="onboardEmpty">Pick a plan above, or generate one in step 2.</p><div id="onboardOut"></div></div>
 </section>
 
 </main>
@@ -132,13 +148,17 @@ const API = window.FIRSTRUNG_API || "";   // same origin (Firebase rewrite or lo
 // Long calls (video capture) go straight to Cloud Run: Firebase Hosting stops requests after 60 s.
 const DIRECT_API = window.FIRSTRUNG_DIRECT_API || API;
 const $ = (id) => document.getElementById(id);
-let currentPlan = null, currentPlanId = null, currentIndex = 0, doneSet = new Set(), playbookTitles = {};
+// progress = the plan's saved progress from the API: status per item ("", done, skipped, stuck) + current item.
+let currentPlan = null, currentPlanId = null, progress = null, playbookTitles = {}, openSteps = null;
 
-document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+function showTab(tab) {
   document.querySelectorAll("nav button, section").forEach(x => x.classList.remove("on"));
-  b.classList.add("on"); $(b.dataset.tab).classList.add("on");
-  if (b.dataset.tab === "capture") loadLibrary();
-});
+  document.querySelector(`[data-tab=${tab}]`).classList.add("on"); $(tab).classList.add("on");
+  if (tab === "capture") loadLibrary();
+  if (tab === "plan") loadPlans();
+  if (tab === "onboard") loadPlanPicker();
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
 // ---- sign-in: Firebase Auth with Google ----
 // Firebase Hosting serves this project's public config at /__/firebase/init.json,
@@ -286,7 +306,7 @@ $("btnPlan").onclick = async (ev) => {
     const days = Math.min(Math.max(parseInt($("days").value) || 5, 1), 10);
     const { id, plan, playbook_titles } = await call("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role_description: $("role").value, days }) });
-    currentPlan = plan; currentPlanId = id; currentIndex = 0; doneSet = new Set(); playbookTitles = playbook_titles || {};
+    currentPlan = plan; currentPlanId = id; progress = plan.progress; playbookTitles = playbook_titles || {};
     const tasks = plan.role_tasks || [], covered = tasks.filter(t => t.playbook_id).length;
     const IMP = { 3: "Critical", 2: "Regular", 1: "Occasional" };
     $("planOut").innerHTML = `
@@ -308,7 +328,8 @@ $("btnPlan").onclick = async (ev) => {
       </div>
       <div class="card"><h2>Day-by-day plan</h2>${plan.items.map((it, i) =>
           (i === 0 || plan.items[i - 1].day !== it.day ? `<div class="day-head">Day ${it.day}</div>` : "") + itemHtml(it, i)).join("")}
-        <button class="btn" style="margin-top:10px" onclick="document.querySelector('[data-tab=onboard]').click(); renderOnboard();">Open as the new hire</button></div>`;
+        <button class="btn" style="margin-top:10px" onclick="openAsNewHire('${esc(id)}')">Open as the new hire</button></div>`;
+    loadPlans();
   } catch (e) { $("planOut").innerHTML = `<div class="card">Plan failed: ${esc(e.message)}</div>`; }
   busy(ev.target, false, "Generate plan + find gaps");
 };
@@ -320,33 +341,104 @@ function copyAsk(i, btn) {
   navigator.clipboard.writeText(text).then(() => { btn.textContent = "Copied ✓"; setTimeout(() => btn.textContent = "Copy request", 2000); },
                                            () => prompt("Copy this message:", text));
 }
-const itemHtml = (it, i) => `<div class="item ${i === currentIndex ? "current" : ""} ${doneSet.has(i) ? "done" : ""}">
-  <span class="pill">Day ${it.day}</span><span class="pill">${esc(it.kind)}</span><b>${esc(it.title)}</b><br>
+const ST_ICON = { done: "✓", skipped: "↷", stuck: "?" };
+const itemHtml = (it, i) => {
+  const st = (progress && progress.status[i]) || "", cur = progress && i === progress.current;
+  return `<div class="item ${cur ? "current" : ""} ${st}">
+  <span class="st ${st}">${ST_ICON[st] || ""}</span><span class="pill">Day ${it.day}</span><span class="pill">${esc(it.kind)}</span><b>${esc(it.title)}</b><br>
   <span class="muted">${esc(it.detail)}</span>
   ${it.playbook_id ? `<br><span class="muted">Playbook: ${esc(playbookTitles[it.playbook_id] || it.playbook_id)}</span>` : ""}</div>`;
+};
+const ago = (t) => { if (!t) return "not started"; const m = Math.round((Date.now() / 1000 - t) / 60);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 
-// ---- 3. new hire + branching ----
+// ---- manager view: every plan with its progress ----
+async function loadPlans() {
+  try {
+    const { plans } = await call("/api/plans");
+    $("plansList").innerHTML = plans.length ? plans.map(p => `<div class="item"><div class="row">
+        <div style="flex:1; min-width:200px"><b>${esc(p.role)}</b> <span class="muted">· coverage ${p.coverage_percent}% · ${p.gaps} gaps · updated ${ago(p.progress.updated_at)}</span>
+          <div class="meter small"><div style="width:${p.progress.percent}%"></div></div>
+          <span class="muted">${p.progress.complete ? "Complete 🎉" : `${p.progress.percent}% through`} · ${p.progress.done} done · ${p.progress.skipped} skipped
+          ${p.progress.stuck_events ? ` · <b style="color:var(--warn)">stuck ${p.progress.stuck_events}×</b>` : ""}</span></div>
+        <button class="btn ghost small" onclick="openAsNewHire('${esc(p.id)}')">Open</button></div></div>`).join("")
+      : "No plans yet. Generate one above.";
+  } catch (e) { $("plansList").textContent = "Could not load plans: " + e.message; }
+}
+
+// ---- 3. new hire: resume a saved plan, report progress, the plan adapts ----
+const LAST_PLAN = "firstrung.lastPlan";
+const remember = (id) => { try { localStorage.setItem(LAST_PLAN, id); } catch {} };
+const recalled = () => { try { return localStorage.getItem(LAST_PLAN); } catch { return null; } };
+
+async function loadPlanPicker() {
+  try {
+    const { plans } = await call("/api/plans");
+    const want = currentPlanId || recalled() || (plans[0] && plans[0].id);
+    $("planPick").innerHTML = plans.length
+      ? plans.map(p => `<option value="${esc(p.id)}" ${p.id === want ? "selected" : ""}>${esc(p.role)} · ${p.progress.percent}% through · coverage ${p.coverage_percent}%</option>`).join("")
+      : `<option value="">No plans yet: generate one in step 2</option>`;
+    if (want && plans.some(p => p.id === want) && want !== currentPlanId) await openPlan(want);
+    else if (currentPlan) renderOnboard();
+  } catch (e) { $("onboardOut").textContent = "Could not load plans: " + e.message; }
+}
+$("planPick").onchange = (e) => e.target.value && openPlan(e.target.value);
+
+async function openAsNewHire(id) { currentPlanId = null; remember(id); showTab("onboard"); }
+async function openPlan(id) {
+  try {
+    const r = await call(`/api/plans/${id}`);
+    currentPlan = r.plan; currentPlanId = id; progress = r.plan.progress; playbookTitles = r.playbook_titles || {};
+    openSteps = null; remember(id); renderOnboard();
+  } catch (e) { $("onboardOut").textContent = "Could not open the plan: " + e.message; }
+}
+
 function renderOnboard(message) {
   if (!currentPlan) return;
   $("onboardEmpty").hidden = true;
-  const it = currentPlan.items[currentIndex];
+  const s = progress.status, n = s.length, finished = s.filter(x => x === "done" || x === "skipped").length;
+  const it = progress.current == null ? null : currentPlan.items[progress.current];
   $("onboardOut").innerHTML = `<h2>Welcome! Your plan as ${esc(currentPlan.role)}</h2>
-    ${currentPlan.items.map(itemHtml).join("")}
-    ${it ? `<div class="row" style="margin-top:10px">
-      <input type="text" id="note" placeholder="Optional: what is confusing you?">
-      <button class="btn" onclick="report('done')">Done</button>
-      <button class="btn ghost" onclick="report('stuck')">I'm stuck</button>
-      <button class="btn ghost" onclick="report('already_know')">I already know this</button></div>`
-      : "<p><b>🎉 Plan complete.</b></p>"}
-    ${message ? `<div class="msg">${esc(message)}</div>` : ""}`;
+    <div class="meter"><div style="width:${n ? Math.round(100 * finished / n) : 100}%"></div></div>
+    <p class="muted">${finished} of ${n} items finished · progress is saved, so you can come back any time</p>
+    ${it ? `<div class="card" style="border-color:var(--accent)">
+      <span class="muted">Now · Day ${it.day} · ${esc(it.kind)}</span><h2 style="margin-top:4px">${esc(it.title)}</h2>
+      <p>${esc(it.detail)}</p>
+      ${it.playbook_id ? `<button class="btn ghost small" onclick="toggleSteps('${esc(it.playbook_id)}')">${openSteps ? "Hide" : "Show"} playbook steps</button>
+        <div id="stepsBox">${openSteps ? openSteps : ""}</div>` : ""}
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="note" placeholder="Stuck? Say what's confusing (optional)" style="flex:1; min-width:200px">
+        <button class="btn" onclick="report('done', this)">Done</button>
+        <button class="btn ghost" onclick="report('stuck', this)">I'm stuck</button>
+        <button class="btn ghost" onclick="report('already_know', this)">I already know this</button></div>
+      ${message ? `<div class="msg">${esc(message)}</div>` : ""}</div>`
+      : `<div class="msg"><b>🎉 Plan complete.</b> ${esc(message || "")}</div>`}
+    ${currentPlan.items.map((x, i) => (i === 0 || currentPlan.items[i - 1].day !== x.day ? `<div class="day-head">Day ${x.day}</div>` : "") + itemHtml(x, i)).join("")}`;
 }
-async function report(outcome) {
+
+async function toggleSteps(pbId) {
+  if (openSteps) { openSteps = null; renderOnboard(); return; }
+  try {
+    const { playbook: p } = await call(`/api/playbooks/${pbId}`);
+    openSteps = `<div class="steps-box"><ol class="steps">${p.steps.map(st => `<li><b>${esc(st.title)}</b><br>${esc(st.action)}<div class="why">Why: ${esc(st.why)}</div></li>`).join("")}</ol>
+      <b>Watch out for</b><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul>
+      <b>Done right when</b><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>`;
+    renderOnboard();
+  } catch (e) { alert("Could not load the playbook: " + e.message); }
+}
+
+async function report(outcome, btn) {
   const note = ($("note") || {}).value || "";
+  const buttons = [...document.querySelectorAll("#onboardOut .row .btn")];
+  buttons.forEach(b => b.disabled = true);
+  if (outcome === "stuck") btn.textContent = "Thinking…";
   try {
     const r = await call("/api/session", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan_id: currentPlanId, item_index: currentIndex, outcome, note }) });
-    if (outcome !== "stuck") for (let i = currentIndex; i < (r.next_item_index ?? currentPlan.items.length); i++) doneSet.add(i);
-    currentIndex = r.next_item_index ?? currentPlan.items.length;
+      body: JSON.stringify({ plan_id: currentPlanId, item_index: progress.current, outcome, note }) });
+    progress = r.progress;
+    const opt = $("planPick").selectedOptions[0];
+    if (opt) opt.textContent = opt.textContent.replace(/\d+% through/, `${r.summary.percent}% through`);
+    if (outcome !== "stuck") openSteps = null;
     renderOnboard(r.message);
   } catch (e) { renderOnboard("Error: " + e.message); }
 }
