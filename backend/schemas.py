@@ -51,6 +51,16 @@ class PlanDraft(BaseModel):
     items: list[PlanItem]
 
 
+class TaskMatch(BaseModel):
+    task_index: int = Field(description="Index of the task in the list given")
+    playbook_id: str = Field(description="ID of the library playbook that teaches this task, or empty string if none does")
+
+
+class Recheck(BaseModel):
+    """Gemini's answer when an existing plan is re-checked against the current library."""
+    matches: list[TaskMatch]
+
+
 class Gap(BaseModel):
     topic: str
     why_needed: str

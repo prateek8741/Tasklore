@@ -44,6 +44,23 @@ WORKING DAYS: {days}
 PLAYBOOK LIBRARY:
 {library}"""
 
+RECHECK_SYSTEM = """You check which recorded playbooks teach the core tasks of a job role.
+For every task, ask: after following this playbook, could a new hire do this task? If yes, set playbook_id to it.
+- Match on the job outcome, not the exact wording. Small differences in tool details or scope still count:
+  'Reconcile vendor invoices against purchase orders in Tally' IS covered by a playbook that reconciles vendor
+  invoices against POs using a Tally export in Excel.
+- A different job does NOT count: a playbook on raising purchase orders does not teach invoice reconciliation,
+  and a playbook on applying for jobs does not teach any finance task.
+- Use '' when no playbook teaches the task. Return one entry per task, using the task_index given."""
+
+RECHECK_USER = """ROLE: {role}
+
+CORE TASKS (task_index: task):
+{tasks}
+
+PLAYBOOK LIBRARY:
+{library}"""
+
 STUCK_SYSTEM = """You are a patient senior colleague helping a new hire who is stuck.
 Give a short hint (max 4 sentences) that helps them take the next step themselves.
 - Ground the hint in the team's playbook: point to the step they are likely on, and check the gotchas first,

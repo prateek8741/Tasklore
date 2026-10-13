@@ -15,6 +15,7 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   POST /api/plan            role description -> onboarding plan + computed coverage + gap report
   GET  /api/plans           manager view: all plans with progress
   GET  /api/plans/{id}      one plan with its saved progress (resume after refresh)
+  POST /api/plans/{id}/recheck  re-match the plan's tasks against the current library -> new coverage + gaps
   POST /api/session         new hire reports done / stuck / already_know -> plan adapts, progress saved
 """
 import json
@@ -31,7 +32,7 @@ import auth
 import gemini
 import mock_data
 import prompts
-from schemas import PlanDraft, Playbook, PlanRequest, SessionRequest, SessionResponse
+from schemas import PlanDraft, Playbook, PlanRequest, Recheck, SessionRequest, SessionResponse
 from store import store
 
 logging.basicConfig(level=logging.INFO)
@@ -243,6 +244,34 @@ def list_plans():
            for pid, p in store.list("plans").items()]
     out.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
     return {"plans": out}
+
+
+@app.post("/api/plans/{plan_id}/recheck", dependencies=[SignedIn])
+def recheck_plan(plan_id: str):
+    """Re-match a plan's core tasks against the CURRENT library (e.g. after someone recorded a gap).
+    Coverage and gaps are recomputed; the plan's items and the new hire's progress stay as they are."""
+    plan = store.get("plans", plan_id)
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    library = store.list("playbooks")
+    tasks = plan["role_tasks"]
+    before = {i: t["playbook_id"] for i, t in enumerate(tasks)}
+    if not gemini.is_mock():
+        _, resp = gemini.generate(prompts.RECHECK_USER.format(
+            role=plan.get("role_description") or plan["role"],
+            tasks="\n".join(f"{i}: {t['task']}" for i, t in enumerate(tasks)), library=_library_text(library)),
+            schema=Recheck, system=prompts.RECHECK_SYSTEM)
+        for m in _parsed(resp, Recheck)["matches"]:
+            if 0 <= m["task_index"] < len(tasks):
+                tasks[m["task_index"]]["playbook_id"] = m["playbook_id"]
+    old_coverage = plan.get("coverage_percent", 0)
+    plan.update(finish_plan(plan, library))
+    plan["rechecked_at"] = time.time()
+    store.put("plans", plan, doc_id=plan_id)
+    newly = [t["task"] for i, t in enumerate(tasks) if t["playbook_id"] and not before.get(i)]
+    return {"id": plan_id, "coverage_before": old_coverage, "coverage_after": plan["coverage_percent"],
+            "newly_covered": newly, "gaps": len(plan["gaps"]), "plan": plan,
+            "playbook_titles": {pid: p["title"] for pid, p in library.items()}}
 
 
 @app.get("/api/plans/{plan_id}", dependencies=[SignedIn])
