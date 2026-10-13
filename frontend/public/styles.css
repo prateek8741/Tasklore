@@ -20,8 +20,9 @@
   --spring-time: .6s;
   color-scheme: light;
 }
+/* Dark tokens: used when the device is dark (unless the user picked Light), or when the user picked Dark. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0b0b0d; --surface: #1c1c1f; --surface-2: #2c2c2e; --fill: rgba(118, 118, 128, .24);
     --ink: #f5f5f7; --muted: rgba(235, 235, 245, .6); --sep: rgba(84, 84, 88, .55);
     --tint: #5b8ff0; --tint-ink: #0b0b0d; --tint-soft: rgba(91, 143, 240, .2);
@@ -32,6 +33,17 @@
     --shadow-sm: none; --shadow-lg: 0 10px 30px rgba(0, 0, 8, .5);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0b0d; --surface: #1c1c1f; --surface-2: #2c2c2e; --fill: rgba(118, 118, 128, .24);
+  --ink: #f5f5f7; --muted: rgba(235, 235, 245, .6); --sep: rgba(84, 84, 88, .55);
+  --tint: #5b8ff0; --tint-ink: #0b0b0d; --tint-soft: rgba(91, 143, 240, .2);
+  --good: #30d158; --good-fill: #30d158; --good-soft: rgba(48, 209, 88, .16);
+  --warn: #ff9f0a; --warn-fill: #ff9f0a; --warn-soft: rgba(255, 159, 10, .16);
+  --bad: #ff453a; --bad-fill: #ff453a; --bad-soft: rgba(255, 69, 58, .16);
+  --material: rgba(28, 28, 30, .72); --material-edge: rgba(255, 255, 255, .08);
+  --shadow-sm: none; --shadow-lg: 0 10px 30px rgba(0, 0, 8, .5);
+  color-scheme: dark;
 }
 
 /* ---------- typography: system font, tracking and leading change with size ---------- */
@@ -304,3 +316,29 @@ pre { background: var(--surface-2); padding: 14px; border-radius: var(--radius-s
 .check-big { width: 64px; height: 64px; border-radius: 50%; background: var(--good-fill); color: #fff; display: grid; place-items: center;
              font-size: 30px; font-weight: 800; margin: 0 auto 12px; animation: materialize .5s var(--spring) both; }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } .check-big { animation: fade .2s ease both; } }
+
+/* "How is this % calculated?" */
+details.how { margin: 4px 0 10px; }
+details.how summary { cursor: pointer; color: var(--tint); font-size: .875rem; font-weight: 500; width: max-content; }
+details.how[open] summary { margin-bottom: 8px; }
+details.how table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+details.how th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px 4px 0; }
+details.how td { padding: 6px 8px 6px 0; border-top: .5px solid var(--sep); vertical-align: top; }
+details.how td:nth-child(n+2), details.how th:nth-child(n+2) { white-space: nowrap; }
+details.how tfoot td { border-top: 1px solid var(--sep); padding-top: 8px; }
+
+/* Appearance switch (Auto / Light / Dark), styled like the segmented navigation */
+.theme-switch { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--fill); }
+.theme-switch button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: .75rem; font-weight: 500;
+                       padding: 4px 9px; border-radius: 7px; cursor: pointer; transition: background .2s, color .2s; }
+.theme-switch button:hover { color: var(--ink); }
+.theme-switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); font-weight: 600; }
+/* Ease between themes instead of an abrupt brightness jump (only while switching) */
+html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *::after {
+  transition: background-color .35s ease, color .35s ease, border-color .35s ease, box-shadow .35s ease, fill .35s ease, stroke .35s ease !important;
+}
+/* On phones the switch shrinks to one button showing the current mode; tapping it cycles Auto -> Light -> Dark. */
+@media (max-width: 600px) {
+  .theme-switch { margin-left: auto; }
+  .theme-switch button[aria-pressed="false"] { display: none; }
+}

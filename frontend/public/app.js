@@ -34,6 +34,22 @@ function toast(msg, kind = "info", ms = 4500, action = null) {
   return close;
 }
 
+// ---------------- appearance: Auto (follow the device) / Light / Dark ----------------
+// The choice is a per-browser convenience, so it lives in localStorage; <head> applies it before first paint.
+const THEME_KEY = "firstrung.theme";
+function setTheme(mode, animate = true) {
+  const root = document.documentElement;
+  if (animate && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    root.classList.add("theme-anim"); setTimeout(() => root.classList.remove("theme-anim"), 400);
+  }
+  if (mode === "auto") delete root.dataset.theme; else root.dataset.theme = mode;
+  try { mode === "auto" ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, mode); } catch {}
+  $$("[data-theme-set]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.themeSet === mode)));
+  // Product screenshots come in light and dark versions; make them follow the chosen theme, not only the device.
+  $$("source[data-dark]").forEach(s => s.media = mode === "auto" ? "(prefers-color-scheme: dark)" : mode === "dark" ? "all" : "not all");
+}
+setTheme(document.documentElement.dataset.theme || "auto", false);
+
 // The top bar shows its edge only when content scrolls underneath it.
 const onScroll = () => document.body.classList.toggle("scrolled", window.scrollY > 4);
 window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
@@ -378,26 +394,40 @@ $("#btnPlan").onclick = async (ev) => {
   btn.disabled = false; btn.textContent = "Generate plan & find gaps";
 };
 
+const KIND_HELP = { setup: "get accounts and tool access", learn: "watch a recorded playbook",
+                    practice: "do the task yourself", meet: "sit with a colleague, for what isn't recorded yet" };
+
 function renderPlan(plan, id) {
   const tasks = plan.role_tasks || [], covered = tasks.filter(t => t.playbook_id).length;
+  const total = tasks.reduce((s, t) => s + t.importance, 0), got = tasks.filter(t => t.playbook_id).reduce((s, t) => s + t.importance, 0);
   const byDay = {}; plan.items.forEach(it => (byDay[it.day] ||= []).push(it));
+  const days = Object.keys(byDay).length;
   $("#planOut").innerHTML = `
     <div class="card"><div class="cover">${ring(plan.coverage_percent)}
-      <div style="flex:1; min-width:240px"><h2>${esc(plan.role)}: ${plan.coverage_percent}% of the know-how is recorded</h2>
-        <p class="muted">${covered} of ${tasks.length} core tasks already have a playbook, weighted by importance. ${esc(plan.summary)}</p>
+      <div style="flex:1; min-width:240px"><h2>${esc(plan.role)}: ${plan.coverage_percent}% of this job is already recorded</h2>
+        <p class="muted">${covered} of ${tasks.length} core tasks have a playbook your team recorded. The rest are listed under "Missing know-how".</p>
+        <details class="how"><summary>How is this % calculated?</summary>
+          <p class="small muted">Each core task gets points by importance: Critical 3, Regular 2, Occasional 1. Coverage is the share of points whose task has a playbook.</p>
+          <table><thead><tr><th>Core task</th><th>Importance</th><th>Points</th><th>Recorded?</th></tr></thead><tbody>
+          ${tasks.map(t => `<tr><td>${esc(t.task)}</td><td>${IMPORTANCE[t.importance] || ""}</td><td>${t.importance}</td><td>${t.playbook_id ? "Yes" : "No"}</td></tr>`).join("")}
+          </tbody><tfoot><tr><td colspan="4">${got} recorded points out of ${total} = <b>${plan.coverage_percent}%</b></td></tr></tfoot></table></details>
+        <p class="small muted">Plan summary: ${esc(plan.summary)}</p>
         <a class="btn primary" href="#learn" data-open-plan="${esc(id)}">Start this plan as the new hire</a></div></div></div>
     <div class="grid2">
       <div class="card"><h2>Core tasks of the role</h2>
+        <p class="muted small">What this job involves, and which parts your team has already recorded. ✓ means a playbook teaches it; ! means nobody has recorded it yet.</p>
         ${tasks.map(t => `<div class="task"><span class="mark ${t.playbook_id ? "yes" : "no"}" aria-label="${t.playbook_id ? "covered" : "gap"}">${t.playbook_id ? "✓" : "!"}</span>
           <div style="flex:1"><div>${esc(t.task)}</div><span class="small muted">${t.playbook_id ? "Covered by “" + esc(state.titles[t.playbook_id] || "a playbook") + "”" : "Not recorded yet"}</span></div>
           <span class="chip ${t.importance === 3 ? "bad" : ""}">${IMPORTANCE[t.importance] || ""}</span></div>`).join("")}</div>
       <div class="card"><h2>Missing know-how (${plan.gaps.length})</h2>
-        <p class="muted small">Nobody has recorded these yet. Ask the right person to show each one once; it takes them 2 to 3 minutes.</p>
+        <p class="muted small">Tasks this job needs that nobody has recorded. Send the request to the suggested person; once they record it, click "Re-check coverage" under Team onboarding and the % goes up.</p>
         ${plan.gaps.map((g, i) => `<div class="gap"><b>${esc(g.topic)}</b><div class="small">${esc(g.why_needed)}</div>
           <div class="foot"><span class="small">Ask <b>${esc(g.suggested_recorder)}</b>, needed by day ${esc(g.needed_by_day)} ${g.importance === 3 ? `<span class="chip bad">Critical</span>` : ""}</span>
           <button class="btn sm" data-copy-gap="${i}">Copy request</button></div></div>`).join("") || `<div class="empty">No gaps. Your library covers this whole role.</div>`}</div>
     </div>
-    <div class="card"><h2>Day-by-day plan</h2><p class="muted small">Learn from a playbook, then practice it. Shadow a colleague for anything not recorded yet.</p>
+    <div class="card"><h2>Day-by-day plan</h2>
+      <p class="muted small">The new hire's timetable for their first ${days} day${days === 1 ? "" : "s"}.
+        ${Object.entries(KIND_HELP).map(([k, v]) => `<span class="k ${k}">${k[0].toUpperCase() + k.slice(1)}</span>: ${v}`).join(". ")}.</p>
       <div class="days">${Object.entries(byDay).map(([d, items]) => `<div class="day"><h3>Day ${d}</h3>${items.map(it => `<div class="pi">
         <span class="k ${esc(it.kind)}">${esc(it.kind)}</span><div><b>${esc(it.title)}</b></div><div class="small muted">${esc(it.detail)}</div>
         ${it.playbook_id ? `<div class="small" style="margin-top:4px">Playbook: ${esc(state.titles[it.playbook_id] || "recorded task")}</div>` : ""}</div>`).join("")}</div>`).join("")}</div></div>`;
@@ -549,6 +579,10 @@ document.addEventListener("click", (e) => {
   else if (d.viewPb) viewPlaybook(d.viewPb);
   else if (d.delPb) deletePlaybook(d.delPb, t);
   else if (d.copyGap) copyGap(+d.copyGap);
+  else if (d.themeSet) {   // tapping the active mode (the only one visible on phones) moves to the next
+    const modes = ["auto", "light", "dark"];
+    setTheme(t.getAttribute("aria-pressed") === "true" ? modes[(modes.indexOf(d.themeSet) + 1) % 3] : d.themeSet);
+  }
   else if (d.recheck) recheckPlan(d.recheck, t);
   else if (d.ytImport !== undefined) importYouTube();
   else if (d.ytPlaylist !== undefined) findYouTube(true);

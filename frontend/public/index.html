@@ -6,6 +6,8 @@
 <title>FirstRung · onboarding your seniors record once</title>
 <meta name="description" content="Seniors show a task once. New hires get an onboarding plan that adapts to them. Built with Gemini on Google Cloud.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23007aff'/%3E%3Cpath d='M10 6v20M22 6v20M10 11h12M10 16h12' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M10 21h12' stroke='%23fbbf24' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<script>/* apply the saved appearance before the page draws, so there is no flash */
+try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="stylesheet" href="styles.css">
 <script src="config.js"></script><!-- written by deploy.sh: direct Cloud Run URL; absent locally -->
 </head>
@@ -24,6 +26,11 @@
     <a href="#plan" data-view="plan">Plan &amp; gaps</a>
     <a href="#learn" data-view="learn">New hire</a>
   </nav>
+  <div class="theme-switch" role="group" aria-label="Appearance">
+    <button data-theme-set="auto" aria-pressed="true" title="Follow this device">Auto</button>
+    <button data-theme-set="light" aria-pressed="false">Light</button>
+    <button data-theme-set="dark" aria-pressed="false">Dark</button>
+  </div>
   <div id="authBox" class="auth"><span class="skel line" style="width:110px;margin:0"></span></div>
 </header>
 
@@ -53,7 +60,7 @@
     </div>
   </div>
   <picture>
-    <source srcset="img/plan-dark.webp" media="(prefers-color-scheme: dark)">
+    <source srcset="img/plan-dark.webp" media="(prefers-color-scheme: dark)" data-dark>
     <img class="shot hero-shot" src="img/plan-light.webp" width="1002" height="820"
          alt="FirstRung plan for an Accounts Executive: 38% of the role's know-how is recorded, with the missing tasks and who should record them">
   </picture>
@@ -64,7 +71,7 @@
       <h3>One recording becomes a playbook</h3>
       <p>A senior does the task and talks it through, in English or Hindi. Gemini writes the steps, the reasons, the gotchas and the checks.</p>
       <picture>
-        <source srcset="img/playbook-dark.webp" media="(prefers-color-scheme: dark)">
+        <source srcset="img/playbook-dark.webp" media="(prefers-color-scheme: dark)" data-dark>
         <img class="shot" src="img/playbook-light.webp" width="1002" height="491" loading="lazy"
              alt="A playbook generated from a screen recording: numbered steps with timestamps and the reason behind each step">
       </picture>
@@ -131,7 +138,8 @@
   </div>
   <div class="card">
     <label for="role">The role</label>
-    <textarea id="role" aria-describedby="roleNote">Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.</textarea>
+    <p class="small muted" id="roleHelp" style="margin:-2px 0 8px">Write 2 or 3 sentences about the job: the main duties and the tools used. The more specific, the better the plan.</p>
+    <textarea id="role" aria-describedby="roleHelp roleNote">Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.</textarea>
     <p class="field-note" id="roleNote" hidden>Describe the role in a sentence or two, so Gemini knows what the job involves.</p>
     <div class="row small" style="margin:8px 0 12px"><span class="muted">Try:</span>
       <button class="chip" data-role="Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.">Accounts Executive</button>
@@ -145,7 +153,7 @@
     </div>
   </div>
   <div id="planOut" aria-live="polite"></div>
-  <div class="section-head"><h2>Team onboarding</h2><p class="muted small">How far each new hire is, and where they got stuck</p></div>
+  <div class="section-head"><h2>Team onboarding</h2><p class="muted small">Every plan you have built: how far each new hire is and where they got stuck. After someone records a missing task, click "Re-check coverage".</p></div>
   <div class="card" id="plansList"><div class="skel line"></div><div class="skel line" style="width:70%"></div></div>
 </section>
 
