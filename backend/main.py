@@ -9,12 +9,15 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   GET  /api/me              who is signed in (login check)
   GET  /api/hello           infra check, one real Gemini call
   POST /api/capture         screen recording -> playbook (call the Cloud Run URL directly: can exceed 60 s)
+  POST /api/youtube/resolve      YouTube video or playlist link -> the videos it contains (no AI call yet)
+  POST /api/capture/youtube      one public YouTube video -> playbook (Gemini reads the URL directly)
   GET  /api/playbooks       list the team's playbook library (newest first)
   GET  /api/playbooks/{id}  one playbook
   DELETE /api/playbooks/{id}  remove a playbook
   POST /api/plan            role description -> onboarding plan + computed coverage + gap report
   GET  /api/plans           manager view: all plans with progress
   GET  /api/plans/{id}      one plan with its saved progress (resume after refresh)
+  POST /api/plans/{id}/recheck  re-match the plan's tasks against the current library -> new coverage + gaps
   POST /api/session         new hire reports done / stuck / already_know -> plan adapts, progress saved
 """
 import json
@@ -31,7 +34,9 @@ import auth
 import gemini
 import mock_data
 import prompts
-from schemas import PlanDraft, Playbook, PlanRequest, SessionRequest, SessionResponse
+import youtube
+from schemas import (PlanDraft, Playbook, PlanRequest, Recheck, SessionRequest, SessionResponse,
+                     YouTubeCaptureRequest, YouTubeResolveRequest)
 from store import store
 
 logging.basicConfig(level=logging.INFO)
@@ -49,6 +54,11 @@ app.add_middleware(
 def gemini_failed(_request, exc: gemini.GeminiError):
     # 502 = an upstream service (Gemini) failed; clients get the reason instead of a bare 500.
     return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+
+@app.exception_handler(youtube.YouTubeError)
+def youtube_problem(_request, exc: youtube.YouTubeError):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 MAX_VIDEO_MB = 25  # Cloud Run requests cap at 32 MB
@@ -107,23 +117,74 @@ def capture(file: UploadFile = File(...), hint: str = Form("", max_length=500), 
     if not mime.startswith("video/"):
         raise HTTPException(415, "Please upload a video file (WebM or MP4).")
 
+    source = {"type": "upload", "filename": file.filename, "size_mb": round(len(data) / 1048576, 1)}
+    return _make_playbook(lambda: gemini.video_part(data, mime), hint, source, user)
+
+
+def _make_playbook(video, hint: str, source: dict, user: dict) -> dict:
+    """Gemini watches the video (an upload or a YouTube URL) and the playbook is saved to the library."""
     t = time.time()
     if gemini.is_mock():
         playbook, model = mock_data.MOCK_PLAYBOOK, "mock"
     else:
-        prompt = prompts.CAPTURE_USER.format(hint=f" Context from the recorder: {hint}" if hint else "")
-        model, resp = gemini.generate([gemini.video_part(data, mime), prompt],
-                                      schema=Playbook, system=prompts.CAPTURE_SYSTEM)
+        prompt = prompts.CAPTURE_USER.format(hint=f" Context: {hint}" if hint else "")
+        model, resp = gemini.generate([video(), prompt], schema=Playbook, system=prompts.CAPTURE_SYSTEM)
         playbook = _parsed(resp, Playbook)
-
-    doc = {**playbook, "created_at": time.time(), "created_by": _who(user),
-           "source": {"filename": file.filename, "size_mb": round(len(data) / 1048576, 1)}}
+    doc = {**playbook, "created_at": time.time(), "created_by": _who(user), "source": source}
     pb_id = store.put("playbooks", doc)
     return {"id": pb_id, "model": model, "ms": int((time.time() - t) * 1000), "playbook": doc}
 
 
 def _who(user: dict) -> dict:
     return {"uid": user["uid"], "email": user.get("email", ""), "name": user.get("name", "")}
+
+
+# ---------------- import from YouTube ----------------
+MAX_YOUTUBE_MINUTES = 30  # longer videos rarely hold one task, and cost more of the Gemini budget
+
+
+def _youtube_in_library() -> dict[str, str]:
+    """video_id -> playbook id, so a video is never imported twice."""
+    return {p["source"]["video_id"]: pid for pid, p in store.list("playbooks").items()
+            if (p.get("source") or {}).get("type") == "youtube"}
+
+
+@app.post("/api/youtube/resolve", dependencies=[SignedIn])
+def youtube_resolve(req: YouTubeResolveRequest):
+    """Which videos does this link mean? Returns them with title, channel, length and whether each can be imported.
+    No Gemini call yet, so nothing is spent until the user picks videos."""
+    ids = youtube.parse(req.url)
+    if ids["playlist_id"] and (req.whole_playlist or not ids["video_id"]):
+        pl = youtube.playlist(ids["playlist_id"])
+        kind, title, videos, total = "playlist", pl["title"], pl["videos"], pl["total"]
+    else:
+        kind, title, total = "video", None, 1
+        videos = [youtube.video(ids["video_id"])]
+    have = _youtube_in_library()
+    for v in videos:
+        v["in_library"] = have.get(v["video_id"])
+        v["problem"] = ("Private or unlisted, so Gemini can't open it" if v["privacy"] != "public"
+                        else f"Longer than {MAX_YOUTUBE_MINUTES} minutes" if (v["duration_s"] or 0) > MAX_YOUTUBE_MINUTES * 60
+                        else None)
+    return {"kind": kind, "title": title, "total": total, "videos": videos,
+            "also_playlist": bool(kind == "video" and ids["playlist_id"]), "max_minutes": MAX_YOUTUBE_MINUTES}
+
+
+# Long videos can take over a minute, so the web app calls the Cloud Run URL directly (like /api/capture).
+@app.post("/api/capture/youtube")
+def capture_youtube(req: YouTubeCaptureRequest, user: dict = SignedIn):
+    if pb := _youtube_in_library().get(req.video_id):
+        raise HTTPException(409, f"This video is already in the library (playbook {pb}).")
+    v = youtube.video(req.video_id)
+    if v["privacy"] != "public":
+        raise HTTPException(400, "This video is private or unlisted, so Gemini can't open it. Download it and use Upload instead.")
+    if (v["duration_s"] or 0) > MAX_YOUTUBE_MINUTES * 60:
+        raise HTTPException(400, f"This video is longer than {MAX_YOUTUBE_MINUTES} minutes. Pick a shorter one that shows one task.")
+    url = youtube.watch_url(req.video_id)
+    context = f'YouTube video "{v["title"]}" by {v["channel"]}.' + (f" {req.hint}" if req.hint else "")
+    source = {"type": "youtube", "video_id": req.video_id, "url": url, "title": v["title"],
+              "channel": v["channel"], "duration_s": v["duration_s"]}
+    return _make_playbook(lambda: gemini.youtube_part(url), context, source, user)
 
 
 @app.get("/api/playbooks", dependencies=[SignedIn])
@@ -243,6 +304,34 @@ def list_plans():
            for pid, p in store.list("plans").items()]
     out.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
     return {"plans": out}
+
+
+@app.post("/api/plans/{plan_id}/recheck", dependencies=[SignedIn])
+def recheck_plan(plan_id: str):
+    """Re-match a plan's core tasks against the CURRENT library (e.g. after someone recorded a gap).
+    Coverage and gaps are recomputed; the plan's items and the new hire's progress stay as they are."""
+    plan = store.get("plans", plan_id)
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    library = store.list("playbooks")
+    tasks = plan["role_tasks"]
+    before = {i: t["playbook_id"] for i, t in enumerate(tasks)}
+    if not gemini.is_mock():
+        _, resp = gemini.generate(prompts.RECHECK_USER.format(
+            role=plan.get("role_description") or plan["role"],
+            tasks="\n".join(f"{i}: {t['task']}" for i, t in enumerate(tasks)), library=_library_text(library)),
+            schema=Recheck, system=prompts.RECHECK_SYSTEM)
+        for m in _parsed(resp, Recheck)["matches"]:
+            if 0 <= m["task_index"] < len(tasks):
+                tasks[m["task_index"]]["playbook_id"] = m["playbook_id"]
+    old_coverage = plan.get("coverage_percent", 0)
+    plan.update(finish_plan(plan, library))
+    plan["rechecked_at"] = time.time()
+    store.put("plans", plan, doc_id=plan_id)
+    newly = [t["task"] for i, t in enumerate(tasks) if t["playbook_id"] and not before.get(i)]
+    return {"id": plan_id, "coverage_before": old_coverage, "coverage_after": plan["coverage_percent"],
+            "newly_covered": newly, "gaps": len(plan["gaps"]), "plan": plan,
+            "playbook_titles": {pid: p["title"] for pid, p in library.items()}}
 
 
 @app.get("/api/plans/{plan_id}", dependencies=[SignedIn])

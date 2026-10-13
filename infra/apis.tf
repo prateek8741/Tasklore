@@ -11,6 +11,8 @@ locals {
     "identitytoolkit.googleapis.com",    # Firebase Authentication
     "secretmanager.googleapis.com",      # stores the Gemini API key
     "generativelanguage.googleapis.com", # Gemini API
+    "youtube.googleapis.com",            # YouTube Data API: list playlist videos, lengths, visibility
+    "apikeys.googleapis.com",            # create the restricted YouTube API key with gcloud
   ]
 }
 

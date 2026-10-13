@@ -55,6 +55,15 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
       env {
+        name = "YOUTUBE_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.youtube_api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
         # Every call except /api/health must carry a valid Firebase sign-in token.
         name  = "AUTH_REQUIRED"
         value = "1"
@@ -82,6 +91,7 @@ resource "google_cloud_run_v2_service" "api" {
   depends_on = [
     google_project_service.enabled,
     google_secret_manager_secret_iam_member.api_reads_gemini_key,
+    google_secret_manager_secret_iam_member.api_reads_youtube_key,
   ]
 }
 

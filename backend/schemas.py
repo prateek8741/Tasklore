@@ -25,6 +25,16 @@ class Playbook(BaseModel):
     narration_language: str = Field(description="Language the narrator spoke, e.g. 'English', 'Hindi', 'Hinglish', or 'none'")
 
 
+class YouTubeResolveRequest(BaseModel):
+    url: str = Field(min_length=5, max_length=500)
+    whole_playlist: bool = False  # for a link to a video inside a playlist: list the playlist instead
+
+
+class YouTubeCaptureRequest(BaseModel):
+    video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
+    hint: str = Field(default="", max_length=300)
+
+
 # ---------- Plan: a role description becomes an onboarding plan + gap report ----------
 class RoleTask(BaseModel):
     task: str = Field(description="One core task or knowledge area this role needs, specific enough to record as a 2-3 minute video")
@@ -49,6 +59,16 @@ class PlanDraft(BaseModel):
     summary: str = Field(description="Two sentences: the shape of the first days and why")
     role_tasks: list[RoleTask] = Field(description="5-10 core tasks of the role, most important first")
     items: list[PlanItem]
+
+
+class TaskMatch(BaseModel):
+    task_index: int = Field(description="Index of the task in the list given")
+    playbook_id: str = Field(description="ID of the library playbook that teaches this task, or empty string if none does")
+
+
+class Recheck(BaseModel):
+    """Gemini's answer when an existing plan is re-checked against the current library."""
+    matches: list[TaskMatch]
 
 
 class Gap(BaseModel):

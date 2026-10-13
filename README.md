@@ -31,11 +31,14 @@ The API is the product; the web app is only the first client. Every endpoint exc
 | `GET /api/me` | Login check: who is signed in (also saves the user profile) |
 | `GET /api/hello` | Infra check: one real Gemini call, end to end |
 | `POST /api/capture` | Screen recording (multipart `file`, optional `hint`) → structured playbook. The web app calls the Cloud Run URL directly for this one (it can take longer than Hosting's 60 s limit) |
+| `POST /api/youtube/resolve` | `{url, whole_playlist}`: a YouTube video or playlist link → its videos with title, channel, length, and whether each can be imported (public, ≤ 30 min, not already in the library). No Gemini call, nothing spent yet |
+| `POST /api/capture/youtube` | `{video_id, hint}` → playbook. Gemini watches the public video straight from its URL; nothing is downloaded. Timestamps in the playbook link back to that moment on YouTube |
 | `GET /api/playbooks` | The team's playbook library, newest first |
 | `GET /api/playbooks/{id}` · `DELETE /api/playbooks/{id}` | One playbook / remove it |
 | `POST /api/plan` | `{role_description, days}` → onboarding plan, coverage %, **gap report** |
 | `GET /api/plans` | Manager view: every plan with progress (% through, done, skipped, times stuck) |
 | `GET /api/plans/{id}` | One plan with its saved progress, so the new hire resumes after a refresh or on another device |
+| `POST /api/plans/{id}/recheck` | Re-match an existing plan's core tasks against the current library, after someone has recorded a gap. Coverage and gaps are recomputed; the plan and the new hire's progress are kept |
 | `POST /api/session` | `{plan_id, item_index, outcome: done/stuck/already_know, note}` → the plan adapts and progress is saved. "Already know" skips the whole topic (every later item using the same playbook); "stuck" returns a hint grounded in that playbook's steps and gotchas, and tries a new angle if earlier advice didn't help |
 
 Interactive API docs are at `/docs` on the Cloud Run URL.
@@ -45,13 +48,31 @@ Interactive API docs are at `/docs` on the Cloud Run URL.
 1. Gemini reads the role description and lists the role's 5–10 core tasks, each with an importance (critical / regular / occasional), the day it is first needed, and who should record it.
 2. For each task it names the library playbook that actually teaches it, or none. The API discards any playbook ID that doesn't exist.
 3. **Coverage is computed by the API, not guessed by the model**: the importance-weighted share of core tasks that have a playbook. Uncovered tasks become the gap report, most important first, and the plan schedules a "shadow" session before each one is needed.
+4. **Closing the loop**: a plan is a snapshot of the library when it was built. When someone records a missing task, "Re-check coverage" matches the plan against today's library (by job outcome, not exact wording). Tested: an Accounts Executive plan went from 12% to 31% after a Hindi-narrated invoice reconciliation was recorded.
+
+### Import from YouTube
+
+Teams often already have training videos. Paste a YouTube video or playlist link on the Capture page, tick the videos you want, and each becomes its own playbook (one task per playbook, so gap detection can match it). Gemini reads public videos directly from the URL. Single videos need no extra setup; playlists, video length and private/unlisted detection use the YouTube Data API with a key stored in Secret Manager (`youtube-api-key`), created with:
+
+```bash
+gcloud services api-keys create --key-id=firstrung-youtube --display-name="FirstRung YouTube" \
+  --api-target=service=youtube.googleapis.com
+gcloud services api-keys get-key-string firstrung-youtube --format="value(keyString)" \
+  | tr -d '\n' | gcloud secrets versions add youtube-api-key --data-file=-
+```
+
+Only public videos work (Gemini can't open private or unlisted ones); videos over 30 minutes are skipped, and at most 10 are imported at a time.
+
+### Languages
+
+Seniors can narrate in English, Hindi or Hinglish; the playbook is always written in clear English and records the narration language. Tested with a Hindi-narrated recording of an invoice reconciliation: every step's "why" was taken from the Hindi narration.
 
 ## Repository layout
 
 | Path | What |
 | --- | --- |
 | `backend/` | FastAPI app (`main.py`), Gemini client with model fallback (`gemini.py`), login check (`auth.py`), prompts, schemas, storage |
-| `frontend/public/index.html` | Single-page web app (Google sign-in, capture, plan, new hire view) |
+| `frontend/public/` | Web app, no build step: `index.html` (views), `styles.css` (light + dark themes), `app.js` (Google sign-in, API calls, screen recording, plan and new-hire views), `img/` (real product screenshots from real Gemini output, light + dark) |
 | `infra/` | Terraform for all Google Cloud infrastructure |
 | `firestore.rules` | Firestore security rules (deny all direct client access) |
 | `build.sh`, `deploy.sh`, `cloudbuild.yaml` | Build the API image with Cloud Build and deploy |

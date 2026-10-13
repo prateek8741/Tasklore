@@ -3,445 +3,192 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FirstRung</title>
-<style>
-  :root {
-    --bg: #f7f7f4; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e3e2dc;
-    --accent: #1a73e8; --accent-soft: #e8f0fe; --good: #188038; --warn: #b06000; --warn-soft: #fef7e0;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #161615; --card: #1f1f1d; --ink: #ecebe6; --muted: #a3a29c; --line: #34332f;
-            --accent: #8ab4f8; --accent-soft: #1e2a3d; --good: #81c995; --warn: #fdd663; --warn-soft: #3a3320; }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
-  header { padding: 20px 16px 8px; max-width: 920px; margin: 0 auto; display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
-  #authBox { display: flex; gap: 8px; align-items: center; font-size: 14px; }
-  header h1 { margin: 0; font-size: 22px; }
-  header p { margin: 4px 0 0; color: var(--muted); }
-  nav { display: flex; gap: 6px; max-width: 920px; margin: 12px auto 0; padding: 0 16px; flex-wrap: wrap; }
-  nav button { border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 8px 14px; border-radius: 999px; cursor: pointer; font: inherit; }
-  nav button.on { background: var(--accent); border-color: var(--accent); color: var(--bg); }
-  main { max-width: 920px; margin: 0 auto; padding: 16px; }
-  section { display: none; } section.on { display: block; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
-  .card h2 { margin: 0 0 6px; font-size: 17px; }
-  .muted { color: var(--muted); }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .btn { border: 0; background: var(--accent); color: var(--bg); padding: 9px 16px; border-radius: 8px; cursor: pointer; font: inherit; font-weight: 600; }
-  .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
-  .btn:disabled { opacity: .5; cursor: wait; }
-  textarea, input[type=text] { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
-  textarea { min-height: 90px; }
-  pre { background: var(--bg); border: 1px solid var(--line); padding: 10px; border-radius: 8px; overflow: auto; font-size: 13px; white-space: pre-wrap; }
-  ol.steps li { margin-bottom: 8px; }
-  .why { color: var(--muted); font-size: 14px; }
-  .pill { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); margin-right: 6px; }
-  .gap { background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 8px 12px; border-radius: 6px; margin: 6px 0; }
-  .meter { height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 6px 0 2px; }
-  .meter > div { height: 100%; background: var(--good); }
-  .item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
-  .item.current { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-  .item.done { opacity: .55; }
-  .msg { padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); margin-top: 10px; }
-  video { width: 100%; max-height: 260px; border-radius: 8px; background: #000; margin-top: 8px; }
-  .btn.small { padding: 4px 10px; font-size: 13px; font-weight: 500; }
-  .item .row { justify-content: space-between; }
-  .task { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
-  .task:last-child { border-bottom: 0; }
-  .task .mark { width: 20px; flex: none; font-weight: 700; }
-  .task .mark.yes { color: var(--good); } .task .mark.no { color: var(--warn); }
-  .imp { font-size: 12px; color: var(--muted); white-space: nowrap; }
-  .big { font-size: 34px; font-weight: 700; line-height: 1.1; }
-  .day-head { margin: 14px 0 2px; font-weight: 600; }
-  .item.skipped { opacity: .55; } .item.skipped b { text-decoration: line-through; }
-  .item.stuck { border-color: var(--warn); }
-  .st { display: inline-block; width: 18px; font-weight: 700; }
-  .st.done { color: var(--good); } .st.stuck { color: var(--warn); } .st.skipped { color: var(--muted); }
-  .steps-box { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 14px; }
-  select { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
-  .meter.small { height: 6px; margin: 4px 0; }
-</style>
+<title>FirstRung · onboarding your seniors record once</title>
+<meta name="description" content="Seniors show a task once. New hires get an onboarding plan that adapts to them. Built with Gemini on Google Cloud.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23007aff'/%3E%3Cpath d='M10 6v20M22 6v20M10 11h12M10 16h12' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M10 21h12' stroke='%23fbbf24' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<script>/* apply the saved appearance before the page draws, so there is no flash */
+try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="stylesheet" href="styles.css">
 <script src="config.js"></script><!-- written by deploy.sh: direct Cloud Run URL; absent locally -->
 </head>
 <body>
-<header>
-  <div>
-    <h1>FirstRung</h1>
-    <p>Seniors show a task once. New hires get an onboarding plan that adapts to them.</p>
-  </div>
-  <div id="authBox" class="muted">Checking sign-in…</div>
-</header>
-<nav>
-  <button data-tab="status" class="on">0 · Infra check</button>
-  <button data-tab="capture">1 · Record a task</button>
-  <button data-tab="plan">2 · Build onboarding plan</button>
-  <button data-tab="onboard">3 · New hire view</button>
-</nav>
-<main>
 
-<!-- 0. Infra check: Jeff's "deploy something basic first" -->
-<section id="status" class="on">
-  <div class="card">
-    <h2>Is the Google Cloud setup working?</h2>
-    <p class="muted">All checks must pass before building features. Cloud Run = the API and database are up. Login = the API accepts your Google sign-in. Gemini = the AI call works end to end.</p>
+<header class="topbar">
+  <a class="brand" href="#home" aria-label="FirstRung home">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--tint)"/>
+      <path d="M10 6v20M22 6v20M10 11h12M10 16h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M10 21h12" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
+    FirstRung
+  </a>
+  <nav id="nav" aria-label="Main">
+    <a href="#home" data-view="home">Overview</a>
+    <a href="#capture" data-view="capture">Capture</a>
+    <a href="#plan" data-view="plan">Plan &amp; gaps</a>
+    <a href="#learn" data-view="learn">New hire</a>
+  </nav>
+  <div class="theme-switch" role="group" aria-label="Appearance">
+    <button data-theme-set="auto" aria-pressed="true" title="Follow this device">Auto</button>
+    <button data-theme-set="light" aria-pressed="false">Light</button>
+    <button data-theme-set="dark" aria-pressed="false">Dark</button>
+  </div>
+  <div id="authBox" class="auth"><span class="skel line" style="width:110px;margin:0"></span></div>
+</header>
+
+<main id="main">
+
+<!-- Sign-in gate (shown for every page except Home when signed out) -->
+<section id="view-signin" class="view" hidden>
+  <div class="card signin">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--tint)"/>
+      <path d="M10 6v20M22 6v20M10 11h12M10 16h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M10 21h12" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
+    <h1>Sign in to your team's FirstRung</h1>
+    <p class="muted">Playbooks and onboarding plans are private to your team. Sign in with your Google account to continue.</p>
+    <button class="btn primary lg" data-action="sign-in">Sign in with Google</button>
+  </div>
+</section>
+
+<!-- Home (landing): hero with a real product image, live stats, asymmetric "how it works" -->
+<section id="view-home" class="view">
+  <div class="hero">
+    <p class="eyebrow">Onboarding that learns from your seniors</p>
+    <h1>Seniors show a task once. New hires get a plan that adapts to them.</h1>
+    <p class="lead">Record a task once. Gemini writes the playbook, plans each new hire's first days, and flags what nobody has recorded.</p>
     <div class="row">
-      <button class="btn" id="btnHealth">Check Cloud Run</button>
-      <button class="btn ghost" id="btnMe">Check login</button>
-      <button class="btn ghost" id="btnHello">Check Gemini</button>
+      <a class="btn primary lg" href="#capture">Record a task</a>
+      <a class="btn lg" href="#plan">Build a plan</a>
     </div>
-    <pre id="statusOut">Not checked yet.</pre>
+  </div>
+  <picture>
+    <source srcset="img/plan-dark.webp" media="(prefers-color-scheme: dark)" data-dark>
+    <img class="shot hero-shot" src="img/plan-light.webp" width="1002" height="820"
+         alt="FirstRung plan for an Accounts Executive: 38% of the role's know-how is recorded, with the missing tasks and who should record them">
+  </picture>
+  <div class="stats" id="stats" hidden aria-live="polite"></div>
+  <div class="section-head"><h2>How it works</h2></div>
+  <div class="bento">
+    <div class="tile big">
+      <h3>One recording becomes a playbook</h3>
+      <p>A senior does the task and talks it through, in English or Hindi. Gemini writes the steps, the reasons, the gotchas and the checks.</p>
+      <picture>
+        <source srcset="img/playbook-dark.webp" media="(prefers-color-scheme: dark)" data-dark>
+        <img class="shot" src="img/playbook-light.webp" width="1002" height="491" loading="lazy"
+             alt="A playbook generated from a screen recording: numbered steps with timestamps and the reason behind each step">
+      </picture>
+    </div>
+    <div class="tile">
+      <h3>See what nobody has recorded</h3>
+      <p>Describe a role. FirstRung measures how much of it your library covers and names who should record each gap.</p>
+    </div>
+    <div class="tile">
+      <h3>A plan that bends, not breaks</h3>
+      <p>Stuck? Get a hint from your team's own playbook. Already know it? Skip the whole topic.</p>
+    </div>
   </div>
 </section>
 
 <!-- 1. Capture -->
-<section id="capture">
-  <div class="card">
-    <h2>Show the task once</h2>
-    <p class="muted">Share your screen and do the task while explaining out loud why you do each step. Keep it under 2–3 minutes.</p>
-    <input type="text" id="hint" placeholder="Optional context, e.g. 'Monthly vendor invoice reconciliation, Finance team'">
-    <div class="row" style="margin-top:10px">
-      <button class="btn" id="btnRec">Start recording</button>
-      <span class="muted">or</span>
-      <input type="file" id="file" accept="video/*">
-      <button class="btn ghost" id="btnUpload">Upload video</button>
+<section id="view-capture" class="view" hidden>
+  <div class="page-head">
+    <h1>Capture a task</h1>
+    <p>Do a real task on your screen and explain out loud why you do each step. One to three minutes is ideal. English, Hindi or Hinglish all work; the playbook is written in clear English.</p>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <label for="hint">What are you recording? <span class="opt">(optional)</span></label>
+      <input type="text" id="hint" maxlength="300" placeholder="e.g. Monthly vendor invoice reconciliation, Finance team">
+      <div id="recIdle" style="margin-top:14px">
+        <button class="btn primary lg" id="btnRec">● Start screen recording</button>
+        <p class="small muted" style="margin-top:8px">Your browser asks which screen or window to share, and for your microphone. Stop when you're done; the playbook is created automatically.</p>
+      </div>
+      <div id="recLive" class="rec-live" hidden role="status">
+        <span class="rec-dot" aria-hidden="true"></span><b>Recording</b>
+        <span id="recTime">0:00</span><span class="muted small" id="recSize"></span>
+        <button class="btn danger" id="btnStop" style="margin-left:auto">Stop &amp; create playbook</button>
+      </div>
+      <p id="recUnsupported" class="small muted" hidden>Screen recording isn't available in this browser. Upload a video instead.</p>
     </div>
-    <video id="preview" controls hidden></video>
+    <div class="card drop" id="drop" tabindex="0" role="button" aria-label="Upload a video file">
+      <input type="file" id="file" accept="video/*" hidden>
+      <div class="icon" aria-hidden="true">+</div>
+      <b>Upload a recording</b>
+      <span class="muted small">Drag a video here or click to choose. MP4 or WebM, up to 25 MB.</span>
+    </div>
   </div>
-  <div class="card" id="pbCard" hidden></div>
   <div class="card">
-    <h2>Team playbook library</h2>
-    <div id="library" class="muted">Loading…</div>
+    <label for="ytUrl">Import from YouTube</label>
+    <div class="row">
+      <input type="text" id="ytUrl" inputmode="url" autocomplete="off" style="flex:1; min-width:220px"
+             placeholder="Paste a video or playlist link, e.g. https://youtu.be/...">
+      <button class="btn" id="btnYt">Find videos</button>
+    </div>
+    <p class="small muted" style="margin-top:8px">Public videos only. Each video becomes its own playbook. Only import videos your team is allowed to use.</p>
+    <div id="ytOut" aria-live="polite"></div>
   </div>
+  <div id="capOut" aria-live="polite"></div>
+  <div class="section-head"><h2>Team playbook library</h2><span class="muted" id="libCount"></span></div>
+  <div id="library" class="lib-grid"><div class="skel block"></div><div class="skel block"></div></div>
 </section>
 
-<!-- 2. Plan + gaps -->
-<section id="plan">
+<!-- 2. Plan & gaps -->
+<section id="view-plan" class="view" hidden>
+  <div class="page-head">
+    <h1>Build an onboarding plan</h1>
+    <p>Describe the new hire's role. FirstRung matches it against your playbook library, shows how much of the role is covered, and flags the know-how nobody has recorded yet.</p>
+  </div>
   <div class="card">
-    <h2>Describe the new hire's role</h2>
-    <textarea id="role">Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.</textarea>
-    <div class="row" style="margin-top:10px">
-      <label class="muted">Working days <input type="number" id="days" value="5" min="1" max="10" style="width:64px"></label>
-      <button class="btn" id="btnPlan">Generate plan + find gaps</button>
+    <label for="role">The role</label>
+    <p class="small muted" id="roleHelp" style="margin:-2px 0 8px">Write 2 or 3 sentences about the job: the main duties and the tools used. The more specific, the better the plan.</p>
+    <textarea id="role" aria-describedby="roleHelp roleNote">Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.</textarea>
+    <p class="field-note" id="roleNote" hidden>Describe the role in a sentence or two, so Gemini knows what the job involves.</p>
+    <div class="row small" style="margin:8px 0 12px"><span class="muted">Try:</span>
+      <button class="chip" data-role="Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.">Accounts Executive</button>
+      <button class="chip" data-role="Procurement Associate in the Purchase team. Raises purchase orders in Tally, compares vendor quotes, follows up on deliveries and gets approval for orders above ₹50,000.">Procurement Associate</button>
+      <button class="chip" data-role="Customer Support Agent for a SaaS billing product. Handles refund requests, plan changes and escalations in Zendesk.">Customer Support Agent</button>
+    </div>
+    <div class="row">
+      <label for="days" style="margin:0">First</label>
+      <select id="days" style="width:auto"><option value="3">3 days</option><option value="5" selected>5 days</option><option value="7">7 days</option><option value="10">10 days</option></select>
+      <button class="btn primary" id="btnPlan">Generate plan &amp; find gaps</button>
     </div>
   </div>
-  <div id="planOut"></div>
-  <div class="card">
-    <h2>Onboarding plans and progress</h2>
-    <p class="muted">Manager view: how far each new hire is, and where they got stuck.</p>
-    <div id="plansList" class="muted">Loading…</div>
-  </div>
+  <div id="planOut" aria-live="polite"></div>
+  <div class="section-head"><h2>Team onboarding</h2><p class="muted small">Every plan you have built: how far each new hire is and where they got stuck. After someone records a missing task, click "Re-check coverage".</p></div>
+  <div class="card" id="plansList"><div class="skel line"></div><div class="skel line" style="width:70%"></div></div>
 </section>
 
 <!-- 3. New hire -->
-<section id="onboard">
-  <div class="card">
-    <div class="row"><label class="muted" for="planPick">Plan</label>
-      <select id="planPick" style="flex:1; min-width:220px"><option value="">Loading plans…</option></select></div>
+<section id="view-learn" class="view" hidden>
+  <div class="page-head">
+    <h1>Your onboarding</h1>
+    <p>Work through your plan at your own pace. Progress is saved, so you can stop and come back on any device.</p>
   </div>
-  <div class="card"><p class="muted" id="onboardEmpty">Pick a plan above, or generate one in step 2.</p><div id="onboardOut"></div></div>
+  <div class="card flat"><label for="planPick">Plan</label><select id="planPick"><option value="">Loading plans…</option></select></div>
+  <div id="learnOut" aria-live="polite"></div>
+</section>
+
+<!-- System check (infrastructure) -->
+<section id="view-system" class="view" hidden>
+  <div class="page-head"><h1>System check</h1>
+    <p>Verifies each part of the Google Cloud setup: Cloud Run and Firestore, your Google sign-in, and a live Gemini call.</p></div>
+  <div class="card">
+    <div class="row">
+      <button class="btn primary" data-check="/api/health">Check Cloud Run + Firestore</button>
+      <button class="btn" data-check="/api/me">Check login</button>
+      <button class="btn" data-check="/api/hello">Check Gemini</button>
+    </div>
+    <pre id="statusOut" style="margin-top:12px">Not checked yet.</pre>
+  </div>
 </section>
 
 </main>
-<script>
-const API = window.FIRSTRUNG_API || "";   // same origin (Firebase rewrite or local)
-// Long calls (video capture) go straight to Cloud Run: Firebase Hosting stops requests after 60 s.
-const DIRECT_API = window.FIRSTRUNG_DIRECT_API || API;
-const $ = (id) => document.getElementById(id);
-// progress = the plan's saved progress from the API: status per item ("", done, skipped, stuck) + current item.
-let currentPlan = null, currentPlanId = null, progress = null, playbookTitles = {}, openSteps = null;
 
-function showTab(tab) {
-  document.querySelectorAll("nav button, section").forEach(x => x.classList.remove("on"));
-  document.querySelector(`[data-tab=${tab}]`).classList.add("on"); $(tab).classList.add("on");
-  if (tab === "capture") loadLibrary();
-  if (tab === "plan") loadPlans();
-  if (tab === "onboard") loadPlanPicker();
-}
-document.querySelectorAll("nav button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
-
-// ---- sign-in: Firebase Auth with Google ----
-// Firebase Hosting serves this project's public config at /__/firebase/init.json,
-// so no keys live in this file. Locally (uvicorn) it is missing and sign-in stays off.
-const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0";
-let fb = null, fbAuth = null, currentUser = null;
-const authReady = (async () => {
-  try {
-    const r = await fetch("/__/firebase/init.json");
-    if (!r.ok) throw new Error("no Firebase config here");
-    const config = await r.json();
-    const [{ initializeApp }, authLib] = await Promise.all([
-      import(`${FIREBASE_SDK}/firebase-app.js`), import(`${FIREBASE_SDK}/firebase-auth.js`)]);
-    fb = authLib; fbAuth = fb.getAuth(initializeApp(config));
-    await new Promise(done => fb.onAuthStateChanged(fbAuth, u => { currentUser = u; renderAuth(); done(); }));
-  } catch (e) {
-    console.info("Sign-in off:", e.message);
-    renderAuth();
-  }
-})();
-
-function renderAuth() {
-  const box = $("authBox");
-  if (!fbAuth) { box.textContent = "Local dev: sign-in off"; return; }
-  if (currentUser) {
-    box.innerHTML = `<span>${esc(currentUser.email)}</span><button class="btn ghost" id="btnOut">Sign out</button>`;
-    $("btnOut").onclick = () => fb.signOut(fbAuth);
-  } else {
-    box.innerHTML = `<button class="btn" id="btnIn">Sign in with Google</button>`;
-    $("btnIn").onclick = () => fb.signInWithPopup(fbAuth, new fb.GoogleAuthProvider())
-      .catch(e => alert("Sign-in failed: " + e.message));
-  }
-}
-
-// Every API call carries the signed-in user's ID token (the API checks it).
-async function call(path, opts = {}, base = API) {
-  await authReady;
-  const headers = { ...(opts.headers || {}) };
-  if (currentUser) headers.Authorization = "Bearer " + await currentUser.getIdToken();
-  const r = await fetch(base + path, { ...opts, headers });
-  const body = await r.json().catch(() => ({}));
-  if (r.status === 401) throw new Error("Please sign in with Google first (top right).");
-  if (!r.ok) throw new Error(body.detail || `HTTP ${r.status} ${r.statusText}`.trim());
-  return body;
-}
-function busy(btn, on, label) { btn.disabled = on; if (label) btn.textContent = label; }
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-
-// ---- 0. infra ----
-$("btnHealth").onclick = async () => {
-  try { $("statusOut").textContent = JSON.stringify(await call("/api/health"), null, 2); }
-  catch (e) { $("statusOut").textContent = "Cloud Run check failed: " + e.message; }
-};
-$("btnMe").onclick = async () => {
-  try { $("statusOut").textContent = JSON.stringify(await call("/api/me"), null, 2); }
-  catch (e) { $("statusOut").textContent = "Login check failed: " + e.message; }
-};
-$("btnHello").onclick = async (ev) => {
-  busy(ev.target, true, "Calling Gemini…");
-  try { $("statusOut").textContent = JSON.stringify(await call("/api/hello"), null, 2); }
-  catch (e) { $("statusOut").textContent = "Gemini check failed: " + e.message; }
-  busy(ev.target, false, "Check Gemini");
-};
-
-// ---- 1. capture ----
-let recorder, chunks = [];
-$("btnRec").onclick = async () => {
-  if (recorder && recorder.state === "recording") { recorder.stop(); return; }
-  try {
-    const screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
-    let tracks = [...screen.getVideoTracks()];
-    try { const mic = await navigator.mediaDevices.getUserMedia({ audio: true }); tracks.push(...mic.getAudioTracks()); }
-    catch { alert("No microphone: recording without narration. Narration makes playbooks much better."); }
-    const stream = new MediaStream(tracks);
-    chunks = [];
-    recorder = new MediaRecorder(stream, { mimeType: "video/webm", videoBitsPerSecond: 600000 });
-    recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
-    recorder.onstop = () => {
-      stream.getTracks().forEach(t => t.stop());
-      $("btnRec").textContent = "Start recording";
-      const blob = new Blob(chunks, { type: "video/webm" });
-      $("preview").src = URL.createObjectURL(blob); $("preview").hidden = false;
-      sendVideo(blob, "recording.webm");
-    };
-    screen.getVideoTracks()[0].onended = () => recorder.state === "recording" && recorder.stop();
-    recorder.start(1000);
-    $("btnRec").textContent = "Stop recording";
-  } catch (e) { alert("Could not start recording: " + e.message); }
-};
-$("btnUpload").onclick = () => { const f = $("file").files[0]; if (f) sendVideo(f, f.name); else alert("Choose a video first."); };
-
-async function sendVideo(blob, name) {
-  const card = $("pbCard"); card.hidden = false;
-  const mb = blob.size / 1048576;
-  if (mb > 25) { card.innerHTML = `<p>This video is ${mb.toFixed(0)} MB; keep recordings under 25 MB (about 2–3 minutes).</p>`; return; }
-  const started = Date.now();
-  const tick = () => card.innerHTML = `<p class="muted">Gemini is watching the recording (${mb.toFixed(1)} MB) and writing the playbook… ${Math.round((Date.now() - started) / 1000)} s<br>Usually 15–60 seconds.</p>`;
-  tick(); const timer = setInterval(tick, 1000);
-  const fd = new FormData(); fd.append("file", blob, name); fd.append("hint", $("hint").value);
-  try {
-    const { id, model, ms, playbook } = await call("/api/capture", { method: "POST", body: fd }, DIRECT_API);
-    card.innerHTML = playbookHtml(playbook, id) + `<p class="muted">Saved to the team library · ${esc(model)} · ${(ms / 1000).toFixed(0)} s</p>`;
-    loadLibrary();
-  } catch (e) { card.innerHTML = `<p>Capture failed: ${esc(e.message)}</p>`; }
-  finally { clearInterval(timer); }
-}
-function playbookHtml(p, id) {
-  const by = p.created_by && p.created_by.name ? ` · recorded by ${esc(p.created_by.name)}` : "";
-  return `<h2>${esc(p.title)}</h2>
-    <p>${esc(p.goal)}</p>
-    <p><span class="pill">${esc(p.role_hint)}</span>${(p.tools || []).map(t => `<span class="pill">${esc(t)}</span>`).join("")}</p>
-    <p class="muted">About ${esc(p.estimated_minutes ?? "?")} min · skills: ${esc((p.skills || []).join(", "))} · narration: ${esc(p.narration_language || "?")}${by}</p>
-    <ol class="steps">${p.steps.map(s => `<li><b>${esc(s.title)}</b> <span class="muted">(${esc(s.timestamp)})</span><br>${esc(s.action)}<div class="why">Why: ${esc(s.why)}</div></li>`).join("")}</ol>
-    <p><b>Watch out for</b></p><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul>
-    <p><b>Done right when</b></p><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul>`;
-}
-async function loadLibrary() {
-  try {
-    const { playbooks } = await call("/api/playbooks");
-    playbookTitles = Object.fromEntries(playbooks.map(p => [p.id, p.title]));
-    $("library").innerHTML = playbooks.length
-      ? playbooks.map(p => `<div class="item"><div class="row">
-          <div><b>${esc(p.title)}</b> <span class="muted">· ${esc(p.role_hint)} · ${p.steps.length} steps</span></div>
-          <div class="row"><button class="btn ghost small" onclick="viewPlaybook('${esc(p.id)}')">View</button>
-          <button class="btn ghost small" onclick="deletePlaybook('${esc(p.id)}')">Delete</button></div></div></div>`).join("")
-      : "No playbooks yet. Record one above.";
-  } catch (e) { $("library").textContent = "Could not load: " + e.message; }
-}
-async function viewPlaybook(id) {
-  try { const { playbook } = await call(`/api/playbooks/${id}`); const card = $("pbCard"); card.hidden = false;
-        card.innerHTML = playbookHtml(playbook, id); card.scrollIntoView({ behavior: "smooth" }); }
-  catch (e) { alert("Could not open playbook: " + e.message); }
-}
-async function deletePlaybook(id) {
-  if (!confirm("Delete this playbook from the team library?")) return;
-  try { await call(`/api/playbooks/${id}`, { method: "DELETE" }); loadLibrary(); }
-  catch (e) { alert("Could not delete: " + e.message); }
-}
-
-// ---- 2. plan ----
-$("btnPlan").onclick = async (ev) => {
-  busy(ev.target, true, "Building plan…");
-  $("planOut").innerHTML = '<div class="card muted">Matching the role against your playbook library…</div>';
-  try {
-    const days = Math.min(Math.max(parseInt($("days").value) || 5, 1), 10);
-    const { id, plan, playbook_titles } = await call("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role_description: $("role").value, days }) });
-    currentPlan = plan; currentPlanId = id; progress = plan.progress; playbookTitles = playbook_titles || {};
-    const tasks = plan.role_tasks || [], covered = tasks.filter(t => t.playbook_id).length;
-    const IMP = { 3: "Critical", 2: "Regular", 1: "Occasional" };
-    $("planOut").innerHTML = `
-      <div class="card"><div class="row" style="align-items:flex-end; gap:14px">
-          <div class="big">${plan.coverage_percent}%</div>
-          <div><b>of this role's know-how is recorded</b><br>
-          <span class="muted">${covered} of ${tasks.length} core tasks have a playbook (weighted by importance)</span></div></div>
-        <div class="meter"><div style="width:${plan.coverage_percent}%"></div></div>
-        ${tasks.map(t => `<div class="task"><span class="mark ${t.playbook_id ? "yes" : "no"}">${t.playbook_id ? "✓" : "!"}</span>
-          <div style="flex:1">${esc(t.task)}<br><span class="muted">${t.playbook_id ? "Covered by: " + esc(playbookTitles[t.playbook_id] || t.playbook_id) : "Not recorded yet"}</span></div>
-          <span class="imp">${IMP[t.importance] || ""}</span></div>`).join("")}
-        <p class="muted">${esc(plan.summary)}</p></div>
-      <div class="card"><h2>Missing knowledge (${plan.gaps.length})</h2>
-        <p class="muted">Nobody has recorded these yet. Ask the right person to show each one once (2–3 minutes).</p>
-        ${plan.gaps.map((g, i) => `<div class="gap"><b>${esc(g.topic)}</b> <span class="imp">· ${IMP[g.importance] || ""} · needed by day ${esc(g.needed_by_day)}</span><br>
-          ${esc(g.why_needed)}<br>
-          <div class="row" style="margin-top:6px"><span class="muted">Ask: <b>${esc(g.suggested_recorder)}</b></span>
-          <button class="btn ghost small" onclick="copyAsk(${i}, this)">Copy request</button></div></div>`).join("") || "<p>No gaps found. 🎉</p>"}
-      </div>
-      <div class="card"><h2>Day-by-day plan</h2>${plan.items.map((it, i) =>
-          (i === 0 || plan.items[i - 1].day !== it.day ? `<div class="day-head">Day ${it.day}</div>` : "") + itemHtml(it, i)).join("")}
-        <button class="btn" style="margin-top:10px" onclick="openAsNewHire('${esc(id)}')">Open as the new hire</button></div>`;
-    loadPlans();
-  } catch (e) { $("planOut").innerHTML = `<div class="card">Plan failed: ${esc(e.message)}</div>`; }
-  busy(ev.target, false, "Generate plan + find gaps");
-};
-function copyAsk(i, btn) {
-  const g = currentPlan.gaps[i];
-  const text = `Hi! We're onboarding a new ${currentPlan.role} and nobody has recorded "${g.topic}" yet. ` +
-    `Could you record a 2–3 minute FirstRung capture of you doing it, explaining each step out loud? ` +
-    `They'll need it by day ${g.needed_by_day}. Thank you!`;
-  navigator.clipboard.writeText(text).then(() => { btn.textContent = "Copied ✓"; setTimeout(() => btn.textContent = "Copy request", 2000); },
-                                           () => prompt("Copy this message:", text));
-}
-const ST_ICON = { done: "✓", skipped: "↷", stuck: "?" };
-const itemHtml = (it, i) => {
-  const st = (progress && progress.status[i]) || "", cur = progress && i === progress.current;
-  return `<div class="item ${cur ? "current" : ""} ${st}">
-  <span class="st ${st}">${ST_ICON[st] || ""}</span><span class="pill">Day ${it.day}</span><span class="pill">${esc(it.kind)}</span><b>${esc(it.title)}</b><br>
-  <span class="muted">${esc(it.detail)}</span>
-  ${it.playbook_id ? `<br><span class="muted">Playbook: ${esc(playbookTitles[it.playbook_id] || it.playbook_id)}</span>` : ""}</div>`;
-};
-const ago = (t) => { if (!t) return "not started"; const m = Math.round((Date.now() / 1000 - t) / 60);
-  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
-
-// ---- manager view: every plan with its progress ----
-async function loadPlans() {
-  try {
-    const { plans } = await call("/api/plans");
-    $("plansList").innerHTML = plans.length ? plans.map(p => `<div class="item"><div class="row">
-        <div style="flex:1; min-width:200px"><b>${esc(p.role)}</b> <span class="muted">· coverage ${p.coverage_percent}% · ${p.gaps} gaps · updated ${ago(p.progress.updated_at)}</span>
-          <div class="meter small"><div style="width:${p.progress.percent}%"></div></div>
-          <span class="muted">${p.progress.complete ? "Complete 🎉" : `${p.progress.percent}% through`} · ${p.progress.done} done · ${p.progress.skipped} skipped
-          ${p.progress.stuck_events ? ` · <b style="color:var(--warn)">stuck ${p.progress.stuck_events}×</b>` : ""}</span></div>
-        <button class="btn ghost small" onclick="openAsNewHire('${esc(p.id)}')">Open</button></div></div>`).join("")
-      : "No plans yet. Generate one above.";
-  } catch (e) { $("plansList").textContent = "Could not load plans: " + e.message; }
-}
-
-// ---- 3. new hire: resume a saved plan, report progress, the plan adapts ----
-const LAST_PLAN = "firstrung.lastPlan";
-const remember = (id) => { try { localStorage.setItem(LAST_PLAN, id); } catch {} };
-const recalled = () => { try { return localStorage.getItem(LAST_PLAN); } catch { return null; } };
-
-async function loadPlanPicker() {
-  try {
-    const { plans } = await call("/api/plans");
-    const want = currentPlanId || recalled() || (plans[0] && plans[0].id);
-    $("planPick").innerHTML = plans.length
-      ? plans.map(p => `<option value="${esc(p.id)}" ${p.id === want ? "selected" : ""}>${esc(p.role)} · ${p.progress.percent}% through · coverage ${p.coverage_percent}%</option>`).join("")
-      : `<option value="">No plans yet: generate one in step 2</option>`;
-    if (want && plans.some(p => p.id === want) && want !== currentPlanId) await openPlan(want);
-    else if (currentPlan) renderOnboard();
-  } catch (e) { $("onboardOut").textContent = "Could not load plans: " + e.message; }
-}
-$("planPick").onchange = (e) => e.target.value && openPlan(e.target.value);
-
-async function openAsNewHire(id) { currentPlanId = null; remember(id); showTab("onboard"); }
-async function openPlan(id) {
-  try {
-    const r = await call(`/api/plans/${id}`);
-    currentPlan = r.plan; currentPlanId = id; progress = r.plan.progress; playbookTitles = r.playbook_titles || {};
-    openSteps = null; remember(id); renderOnboard();
-  } catch (e) { $("onboardOut").textContent = "Could not open the plan: " + e.message; }
-}
-
-function renderOnboard(message) {
-  if (!currentPlan) return;
-  $("onboardEmpty").hidden = true;
-  const s = progress.status, n = s.length, finished = s.filter(x => x === "done" || x === "skipped").length;
-  const it = progress.current == null ? null : currentPlan.items[progress.current];
-  $("onboardOut").innerHTML = `<h2>Welcome! Your plan as ${esc(currentPlan.role)}</h2>
-    <div class="meter"><div style="width:${n ? Math.round(100 * finished / n) : 100}%"></div></div>
-    <p class="muted">${finished} of ${n} items finished · progress is saved, so you can come back any time</p>
-    ${it ? `<div class="card" style="border-color:var(--accent)">
-      <span class="muted">Now · Day ${it.day} · ${esc(it.kind)}</span><h2 style="margin-top:4px">${esc(it.title)}</h2>
-      <p>${esc(it.detail)}</p>
-      ${it.playbook_id ? `<button class="btn ghost small" onclick="toggleSteps('${esc(it.playbook_id)}')">${openSteps ? "Hide" : "Show"} playbook steps</button>
-        <div id="stepsBox">${openSteps ? openSteps : ""}</div>` : ""}
-      <div class="row" style="margin-top:10px">
-        <input type="text" id="note" placeholder="Stuck? Say what's confusing (optional)" style="flex:1; min-width:200px">
-        <button class="btn" onclick="report('done', this)">Done</button>
-        <button class="btn ghost" onclick="report('stuck', this)">I'm stuck</button>
-        <button class="btn ghost" onclick="report('already_know', this)">I already know this</button></div>
-      ${message ? `<div class="msg">${esc(message)}</div>` : ""}</div>`
-      : `<div class="msg"><b>🎉 Plan complete.</b> ${esc(message || "")}</div>`}
-    ${currentPlan.items.map((x, i) => (i === 0 || currentPlan.items[i - 1].day !== x.day ? `<div class="day-head">Day ${x.day}</div>` : "") + itemHtml(x, i)).join("")}`;
-}
-
-async function toggleSteps(pbId) {
-  if (openSteps) { openSteps = null; renderOnboard(); return; }
-  try {
-    const { playbook: p } = await call(`/api/playbooks/${pbId}`);
-    openSteps = `<div class="steps-box"><ol class="steps">${p.steps.map(st => `<li><b>${esc(st.title)}</b><br>${esc(st.action)}<div class="why">Why: ${esc(st.why)}</div></li>`).join("")}</ol>
-      <b>Watch out for</b><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul>
-      <b>Done right when</b><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>`;
-    renderOnboard();
-  } catch (e) { alert("Could not load the playbook: " + e.message); }
-}
-
-async function report(outcome, btn) {
-  const note = ($("note") || {}).value || "";
-  const buttons = [...document.querySelectorAll("#onboardOut .row .btn")];
-  buttons.forEach(b => b.disabled = true);
-  if (outcome === "stuck") btn.textContent = "Thinking…";
-  try {
-    const r = await call("/api/session", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ plan_id: currentPlanId, item_index: progress.current, outcome, note }) });
-    progress = r.progress;
-    const opt = $("planPick").selectedOptions[0];
-    if (opt) opt.textContent = opt.textContent.replace(/\d+% through/, `${r.summary.percent}% through`);
-    if (outcome !== "stuck") openSteps = null;
-    renderOnboard(r.message);
-  } catch (e) { renderOnboard("Error: " + e.message); }
-}
-</script>
+<footer>
+  <span>Built with Gemini, Cloud Run, Firebase and Firestore</span>
+  <a href="#system">System check</a>
+  <a href="https://github.com/prateek8741/firstrung" target="_blank" rel="noopener">Source on GitHub</a>
+</footer>
+<div id="toasts" aria-live="polite"></div>
+<script src="app.js"></script>
 </body>
 </html>
