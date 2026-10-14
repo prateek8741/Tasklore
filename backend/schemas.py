@@ -101,9 +101,23 @@ class SessionRequest(BaseModel):
     note: str = ""
 
 
+class Transcript(BaseModel):
+    text: str = Field(description="Exactly what was said, in the original language. Empty string if there is no clear speech")
+
+
+class SpeakRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=1500)
+
+
+class CoachRequest(BaseModel):
+    plan_id: str
+    item_index: int
+
+
 class SessionResponse(BaseModel):
     branch: str  # next | skip | hint
     next_item_index: int | None  # None = plan complete
     message: str
+    heard: str | None = None  # for spoken questions: what Gemini heard
     progress: dict  # status per item + log; same shape as plan["progress"]
     summary: dict  # counts and percent complete

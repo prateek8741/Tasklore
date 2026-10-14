@@ -342,3 +342,27 @@ html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *
   .theme-switch { margin-left: auto; }
   .theme-switch button[aria-pressed="false"] { display: none; }
 }
+
+/* ---------- voice: ask by voice, listen, live coach ---------- */
+.voice-row { margin-top: 10px; padding-top: 10px; border-top: .5px solid var(--sep); }
+.btn.recording { background: var(--bad-soft); color: var(--bad); }
+.btn.recording::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fill); animation: pulse 1.2s ease-in-out infinite; }
+.hint .listen { float: right; margin: -2px 0 6px 10px; }
+.hint .heard { display: block; font-size: .8125rem; color: var(--muted); margin-bottom: 6px; }
+.coach { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40; width: min(660px, calc(100vw - 24px));
+         padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--surface) 94%, transparent);   /* nearly solid: captions sit over page text */ box-shadow: var(--shadow-lg), 0 0 0 .5px var(--material-edge);
+         -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); animation: materialize .45s var(--spring) both; }
+.coach-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.coach-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good-fill); flex: none; }
+.coach.speaking .coach-dot { background: var(--tint); animation: pulse 1s ease-in-out infinite; }
+.coach.connecting .coach-dot { background: var(--warn-fill); }
+.coach-level { margin: 10px 0 8px; }
+.coach-level > div { background: var(--good-fill); transition: width .1s linear; }
+.coach-captions { max-height: 28vh; overflow-y: auto; font-size: .9375rem; display: flex; flex-direction: column; gap: 6px; }
+.coach-captions p { margin: 0; }
+.coach-captions .you b { color: var(--muted); }
+.coach-captions .coach-line b { color: var(--tint); }
+.coach-captions .system { color: var(--warn); font-size: .8125rem; }
+body.coach-open main { padding-bottom: 280px; }   /* keep the page usable behind the panel */
+@media (prefers-reduced-transparency: reduce) { .coach { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+@media (prefers-reduced-motion: reduce) { .coach { animation: fade .2s ease both; } .coach.speaking .coach-dot, .btn.recording::before { animation: none; } }
