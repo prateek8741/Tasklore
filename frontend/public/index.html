@@ -22,9 +22,9 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   </a>
   <nav id="nav" aria-label="Main">
     <a href="#home" data-view="home">Overview</a>
-    <a href="#capture" data-view="capture">Capture</a>
-    <a href="#plan" data-view="plan">Plan &amp; gaps</a>
-    <a href="#learn" data-view="learn">New hire</a>
+    <a href="#capture" data-view="capture" data-roles="manager expert">Capture</a>
+    <a href="#plan" data-view="plan" data-roles="manager">Plan &amp; gaps</a>
+    <a href="#learn" data-view="learn" data-roles="manager newhire" id="navLearn">New hire</a>
   </nav>
   <div class="theme-switch" role="group" aria-label="Appearance">
     <button data-theme-set="auto" aria-pressed="true" title="Follow this device">Auto</button>
@@ -33,6 +33,16 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   </div>
   <div id="authBox" class="auth"><span class="skel line" style="width:110px;margin:0"></span></div>
 </header>
+<!-- "View as": shown in demo mode (everyone holds every role) or to people who hold several roles -->
+<div id="roleBar" class="rolebar" hidden>
+  <span class="small"><b id="roleBarLabel">Demo mode</b> View as</span>
+  <div class="seg" role="group" aria-label="View as">
+    <button data-role-set="manager" aria-pressed="false">Manager</button>
+    <button data-role-set="expert" aria-pressed="false">Expert</button>
+    <button data-role-set="newhire" aria-pressed="false">New hire</button>
+  </div>
+  <span class="small muted" id="roleHint"></span>
+</div>
 
 <main id="main">
 
@@ -49,12 +59,20 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 </section>
 
 <!-- Home (landing): hero with a real product image, live stats, asymmetric "how it works" -->
+<section id="view-noaccess" class="view" hidden>
+  <div class="card signin">
+    <h1>You don't have access yet</h1>
+    <p class="muted" id="noAccessMsg">Ask your manager to assign you an onboarding plan or a recording request. Then sign in again with the same Google account.</p>
+    <button class="btn" data-action="sign-out">Sign out</button>
+  </div>
+</section>
+
 <section id="view-home" class="view">
   <div class="hero">
     <p class="eyebrow">Onboarding that learns from your seniors</p>
     <h1>Seniors show a task once. New hires get a plan that adapts to them.</h1>
     <p class="lead">Record a task once. Gemini writes the playbook, plans each new hire's first days, and flags what nobody has recorded.</p>
-    <div class="row">
+    <div class="row" id="heroCta">
       <a class="btn primary lg" href="#capture">Record a task</a>
       <a class="btn lg" href="#plan">Build a plan</a>
     </div>
@@ -93,6 +111,8 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     <h1>Capture a task</h1>
     <p>Do a real task on your screen and explain out loud why you do each step. One to three minutes is ideal. English, Hindi or Hinglish all work; the playbook is written in clear English.</p>
   </div>
+  <div id="reqBox"></div>
+  <div id="reqActive"></div>
   <div class="grid2">
     <div class="card">
       <label for="hint">What are you recording? <span class="opt">(optional)</span></label>
@@ -202,6 +222,8 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   <p class="small muted" style="margin:6px 0 0">Talk normally, in English or Hindi. Headphones work best. The coach sees your screen only while you share it.</p>
 </div>
 <div id="toasts" aria-live="polite"></div>
+<datalist id="expertList"></datalist>
+<datalist id="newhireList"></datalist>
 <script src="voice.js"></script>
 <script src="app.js"></script>
 </body>

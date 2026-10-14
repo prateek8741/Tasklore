@@ -33,6 +33,10 @@ The API is the product; the web app is only the first client. Every endpoint exc
 | `POST /api/capture` | Screen recording (multipart `file`, optional `hint`) → structured playbook. The web app calls the Cloud Run URL directly for this one (it can take longer than Hosting's 60 s limit) |
 | `POST /api/youtube/resolve` | `{url, whole_playlist}`: a YouTube video or playlist link → its videos with title, channel, length, and whether each can be imported (public, ≤ 30 min, not already in the library). No Gemini call, nothing spent yet |
 | `POST /api/capture/youtube` | `{video_id, hint}` → playbook. Gemini watches the public video straight from its URL; nothing is downloaded. Timestamps in the playbook link back to that moment on YouTube |
+| `GET /api/me` · `POST /api/me/role` | Who is signed in, their roles and active role · switch role ("View as") |
+| `POST /api/plans/{id}/assign` · `DELETE /api/plans/{id}` | Assign a plan to a new hire by email (invites them) · delete a plan (manager) |
+| `POST /api/requests` · `GET /api/requests` · `POST /api/requests/{id}/decline` | Manager asks an expert to record a gap · managers see all requests, experts see theirs · expert declines with a reason and a suggestion. Answering: pass `request_id` to `/api/capture` or `/api/capture/youtube`; the request closes and the plan is re-checked |
+| `GET /api/people` | Known experts and new hires, for the pickers (manager) |
 | `POST /api/session/voice` | Multipart `plan_id`, `item_index`, `file` (WAV): a spoken "I'm stuck" → what was heard + a hint in the same language |
 | `POST /api/speak` | `{text}` → WAV audio (Gemini text-to-speech) |
 | `POST /api/coach/start` | `{plan_id, item_index}` → single-use token for a live voice coach session (Gemini Live API) |
@@ -53,6 +57,20 @@ Interactive API docs are at `/docs` on the Cloud Run URL.
 2. For each task it names the library playbook that actually teaches it, or none. The API discards any playbook ID that doesn't exist.
 3. **Coverage is computed by the API, not guessed by the model**: the importance-weighted share of core tasks that have a playbook. Uncovered tasks become the gap report, most important first, and the plan schedules a "shadow" session before each one is needed.
 4. **Closing the loop**: a plan is a snapshot of the library when it was built. When someone records a missing task, "Re-check coverage" matches the plan against today's library (by job outcome, not exact wording). Tested: an Accounts Executive plan went from 12% to 31% after a Hindi-narrated invoice reconciliation was recorded.
+
+### Roles: manager, expert, new hire
+
+| Role | Sees and does |
+| --- | --- |
+| **Manager** | Everything: builds plans, **assigns** a plan to a new hire by email, **asks an expert** to record a gap, sees team progress, deletes or restarts plans |
+| **Expert** | Capture and the library, plus **"Recording requests for you"**: record it (screen, upload or YouTube) or decline with a reason and who to ask instead |
+| **New hire** | Only the plans assigned to them, and only the playbooks those plans use |
+
+The loop: the manager asks an expert to record a gap → the expert sees the request when they sign in and records it → the request closes and **the plan's coverage is re-checked automatically** → the new hire's plan now has that playbook.
+
+How people get roles: the first person to sign in becomes a manager; assigning a plan invites that email as a new hire; asking an expert invites that email as an expert. One person can hold several roles. **The API enforces roles** (a new hire asking for someone else's plan gets 404), and Firestore rules still deny all direct client access.
+
+**Demo mode** (`DEMO_MODE=1`, set in `infra/cloud_run.tf` for the hackathon): every signed-in user holds all three roles and switches with **"View as"**, so judges can try the whole loop with one Google account. Set it to `0` for a real team.
 
 ### Voice: listen, ask by voice, live coach
 

@@ -33,6 +33,7 @@ class YouTubeResolveRequest(BaseModel):
 class YouTubeCaptureRequest(BaseModel):
     video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
     hint: str = Field(default="", max_length=300)
+    request_id: str = Field(default="", max_length=64)  # answering a recording request
 
 
 # ---------- Plan: a role description becomes an onboarding plan + gap report ----------
@@ -121,3 +122,26 @@ class SessionResponse(BaseModel):
     heard: str | None = None  # for spoken questions: what Gemini heard
     progress: dict  # status per item + log; same shape as plan["progress"]
     summary: dict  # counts and percent complete
+
+
+# ---------- Roles, assignment, recording requests ----------
+EMAIL = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+
+class RoleSwitch(BaseModel):
+    role: Literal["manager", "expert", "newhire"]
+
+
+class AssignRequest(BaseModel):
+    email: str = Field(default="", max_length=200, pattern=r"^$|" + EMAIL)  # empty = unassign
+
+
+class AskExpertRequest(BaseModel):
+    plan_id: str
+    topic: str = Field(max_length=500)
+    expert_email: str = Field(max_length=200, pattern=EMAIL)
+
+
+class DeclineRequest(BaseModel):
+    reason: str = Field(default="", max_length=300)
+    suggest: str = Field(default="", max_length=200)  # who to ask instead

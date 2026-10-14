@@ -81,7 +81,50 @@ function renderAuth() {
       <span class="who" title="${esc(state.user.email)}">${esc(name)}</span>
       <button class="btn sm ghost" data-action="sign-out">Sign out</button>`;
   } else box.innerHTML = `<button class="btn primary sm" data-action="sign-in">Sign in with Google</button>`;
-  route();
+  refreshMe();
+}
+
+// ---------------- roles: manager, expert, new hire (the API enforces them; the UI mirrors them) ----------------
+const ROLE_NAME = { manager: "Manager", expert: "Expert", newhire: "New hire" };
+const ROLE_HOME = { manager: "#plan", expert: "#capture", newhire: "#learn" };
+const VIEW_ROLES = { capture: ["manager", "expert"], plan: ["manager"], learn: ["manager", "newhire"], system: ["manager"] };
+const ROLE_HINT = { manager: "builds plans, assigns them and asks experts to record gaps",
+                    expert: "records tasks and answers recording requests", newhire: "sees only the plan assigned to them" };
+
+async function refreshMe() {
+  state.me = null;
+  if (state.authOn && !state.user) return route();
+  try { state.me = await call("/api/me"); }
+  catch (e) { state.me = { noaccess: e.status === 403 ? e.message : "", role: null, roles: [] }; }
+  applyRole(); route();
+}
+
+function applyRole() {
+  const me = state.me || {}, role = me.role;
+  $$("#nav a[data-roles]").forEach(a => a.hidden = !role || !a.dataset.roles.split(" ").includes(role));
+  $("#navLearn").textContent = role === "newhire" ? "My onboarding" : "New hire";
+  const showBar = !!role && (me.demo || (me.roles || []).length > 1);
+  $("#roleBar").hidden = !showBar;
+  if (showBar) {
+    $("#roleBarLabel").textContent = me.demo ? "Demo mode" : "Your roles";
+    $$("[data-role-set]").forEach(b => { b.hidden = !me.roles.includes(b.dataset.roleSet); b.setAttribute("aria-pressed", String(b.dataset.roleSet === role)); });
+    $("#roleHint").textContent = `${ROLE_NAME[role]}: ${ROLE_HINT[role]}`;
+  }
+  const cta = { manager: [["#capture", "Record a task", 1], ["#plan", "Build a plan"]],
+                expert: [["#capture", "See my recording requests", 1]], newhire: [["#learn", "Open my onboarding", 1]] }[role]
+              || [["#capture", "Record a task", 1], ["#plan", "Build a plan"]];
+  $("#heroCta").innerHTML = cta.map(([href, label, primary]) => `<a class="btn ${primary ? "primary" : ""} lg" href="${href}">${label}</a>`).join("");
+}
+
+async function setRole(role) {
+  try {
+    state.me = { ...state.me, ...(await postJSON("/api/me/role", { role })) };
+    Object.assign(state, { plan: null, planId: null, progress: null, lastPlan: null, lastPlanId: null, activeReq: null });
+    $("#planOut").innerHTML = ""; $("#capOut").innerHTML = ""; $("#reqActive").innerHTML = "";
+    applyRole();
+    if (location.hash === ROLE_HOME[role]) route(); else location.hash = ROLE_HOME[role];
+    toast(`Now viewing as ${ROLE_NAME[role]}.`);
+  } catch (e) { toast(e.message, "bad"); }
 }
 async function signIn() {
   try { await state.fb.signInWithPopup(state.auth, new state.fb.GoogleAuthProvider()); }
@@ -136,12 +179,18 @@ const skeleton = (lines = 3) => Array.from({ length: lines }, (_, i) => `<div cl
 
 // ---------------- routing ----------------
 const VIEWS = ["home", "capture", "plan", "learn", "system"];
-const ON_ENTER = { home: loadStats, capture: loadLibrary, plan: loadPlans, learn: loadPlanPicker };
+const ON_ENTER = { home: loadStats, capture: () => { loadLibrary(); loadRequests(); }, plan: () => { loadPlans(); loadPeople(); }, learn: loadPlanPicker };
 function route() {
   let v = location.hash.slice(1) || "home";
   if (!VIEWS.includes(v)) v = "home";
-  const gated = v !== "home" && state.authOn && !state.user;
+  const signedIn = !state.authOn || state.user;
+  if (signedIn && !state.me) return;   // refreshMe() routes once roles are known
+  const role = state.me?.role;
+  if (signedIn && role && VIEW_ROLES[v] && !VIEW_ROLES[v].includes(role)) { location.hash = ROLE_HOME[role]; return; }
+  const gated = v !== "home" && !signedIn;
+  const noaccess = signedIn && state.me?.noaccess !== undefined;
   $$(".view").forEach(s => s.hidden = true);
+  if (noaccess) { $("#noAccessMsg").textContent = state.me.noaccess || $("#noAccessMsg").textContent; $("#view-noaccess").hidden = false; return; }
   $(gated ? "#view-signin" : `#view-${v}`).hidden = false;
   $$("#nav a").forEach(a => { const on = a.dataset.view === v; a.classList.toggle("on", on); on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"); });
   if (!gated && (v === "home" ? state.user || !state.authOn : true)) ON_ENTER[v]?.();
@@ -150,6 +199,7 @@ window.addEventListener("hashchange", () => { route(); window.scrollTo(0, 0); })
 
 // ---------------- home ----------------
 async function loadStats() {
+  if (state.me?.role !== "manager") { $("#stats").hidden = true; return; }
   try {
     const [{ playbooks }, { plans }] = await Promise.all([call("/api/playbooks"), call("/api/plans")]);
     const avg = plans.length ? Math.round(plans.reduce((s, p) => s + (p.coverage_percent || 0), 0) / plans.length) : 0;
@@ -226,6 +276,7 @@ async function sendVideo(blob, name) {
   draw(); out.scrollIntoView({ behavior: "smooth", block: "nearest" });
   const timer = setInterval(() => stage === 1 && draw(), 1000);
   const form = new FormData(); form.append("file", blob, name); form.append("hint", $("#hint").value);
+  if (state.activeReq) form.append("request_id", state.activeReq.id);
   try {
     const r = await upload("/api/capture", form, p => { pct = p; if (p >= 1 && stage === 0) { stage = 1; waitStart = Date.now(); } draw(); });
     clearInterval(timer);
@@ -233,6 +284,7 @@ async function sendVideo(blob, name) {
       + `<div class="card flat row" style="justify-content:space-between"><span>Did this fill a gap? Plans built earlier don't update by themselves.</span>
          <a class="btn sm" href="#plan">Re-check your plans</a></div>`;
     toast("Playbook created and added to the library.", "good");
+    requestAnswered(r.request);
     loadLibrary();
   } catch (e) {
     clearInterval(timer);
@@ -294,7 +346,8 @@ async function importYouTube() {
     tick(); const timer = setInterval(tick, 1000);
     try {
       const r = await call("/api/capture/youtube", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ video_id: v.video_id, hint }) }, DIRECT_API);
+        body: JSON.stringify({ video_id: v.video_id, hint, request_id: state.activeReq?.id || "" }) }, DIRECT_API);
+      requestAnswered(r.request);
       ok++; v.pick = false; v.in_library = r.id;
       y.status[v.video_id] = { html: `<span class="chip good">Done</span> <button class="btn sm ghost" data-view-pb="${esc(r.id)}">View</button>` };
       loadLibrary();
@@ -397,7 +450,8 @@ $("#btnPlan").onclick = async (ev) => {
 const KIND_HELP = { setup: "get accounts and tool access", learn: "watch a recorded playbook",
                     practice: "do the task yourself", meet: "sit with a colleague, for what isn't recorded yet" };
 
-function renderPlan(plan, id) {
+function renderPlan(plan, id, requests = []) {
+  state.planRequests = requests;
   const tasks = plan.role_tasks || [], covered = tasks.filter(t => t.playbook_id).length;
   const total = tasks.reduce((s, t) => s + t.importance, 0), got = tasks.filter(t => t.playbook_id).reduce((s, t) => s + t.importance, 0);
   const byDay = {}; plan.items.forEach(it => (byDay[it.day] ||= []).push(it));
@@ -412,7 +466,8 @@ function renderPlan(plan, id) {
           ${tasks.map(t => `<tr><td>${esc(t.task)}</td><td>${IMPORTANCE[t.importance] || ""}</td><td>${t.importance}</td><td>${t.playbook_id ? "Yes" : "No"}</td></tr>`).join("")}
           </tbody><tfoot><tr><td colspan="4">${got} recorded points out of ${total} = <b>${plan.coverage_percent}%</b></td></tr></tfoot></table></details>
         <p class="small muted">Plan summary: ${esc(plan.summary)}</p>
-        <a class="btn primary" href="#learn" data-open-plan="${esc(id)}">Start this plan as the new hire</a></div></div></div>
+        ${assignHtml(plan, id)}
+        <a class="btn" href="#learn" data-open-plan="${esc(id)}">Preview as the new hire</a></div></div></div>
     <div class="grid2">
       <div class="card"><h2>Core tasks of the role</h2>
         <p class="muted small">What this job involves, and which parts your team has already recorded. ✓ means a playbook teaches it; ! means nobody has recorded it yet.</p>
@@ -420,10 +475,10 @@ function renderPlan(plan, id) {
           <div style="flex:1"><div>${esc(t.task)}</div><span class="small muted">${t.playbook_id ? "Covered by “" + esc(state.titles[t.playbook_id] || "a playbook") + "”" : "Not recorded yet"}</span></div>
           <span class="chip ${t.importance === 3 ? "bad" : ""}">${IMPORTANCE[t.importance] || ""}</span></div>`).join("")}</div>
       <div class="card"><h2>Missing know-how (${plan.gaps.length})</h2>
-        <p class="muted small">Tasks this job needs that nobody has recorded. Send the request to the suggested person; once they record it, click "Re-check coverage" under Team onboarding and the % goes up.</p>
+        <p class="muted small">Tasks this job needs that nobody has recorded. Click "Ask an expert": they see the request when they sign in, and when they record it, this plan's coverage updates by itself.</p>
         ${plan.gaps.map((g, i) => `<div class="gap"><b>${esc(g.topic)}</b><div class="small">${esc(g.why_needed)}</div>
           <div class="foot"><span class="small">Ask <b>${esc(g.suggested_recorder)}</b>, needed by day ${esc(g.needed_by_day)} ${g.importance === 3 ? `<span class="chip bad">Critical</span>` : ""}</span>
-          <button class="btn sm" data-copy-gap="${i}">Copy request</button></div></div>`).join("") || `<div class="empty">No gaps. Your library covers this whole role.</div>`}</div>
+          <span class="row">${gapRequestHtml(g, i)}</span></div><div id="ask-${i}"></div></div>`).join("") || `<div class="empty">No gaps. Your library covers this whole role.</div>`}</div>
     </div>
     <div class="card"><h2>Day-by-day plan</h2>
       <p class="muted small">The new hire's timetable for their first ${days} day${days === 1 ? "" : "s"}.
@@ -479,15 +534,139 @@ async function loadPlans() {
   try {
     const { plans } = await call("/api/plans");
     $("#plansList").innerHTML = plans.length ? plans.map(p => `<div class="plan-row">${ring(p.progress.percent, "small")}
-        <div class="grow"><b>${esc(p.role)}</b> <span class="small muted">created ${fmtDate(p.created_at)}</span>
+        <div class="grow"><b>${esc(p.role)}</b> <span class="small muted">created ${fmtDate(p.created_at)}, ${p.assigned_to ? `for ${esc(p.assigned_to)}` : "not assigned yet"}</span>
           <div class="small muted">Coverage ${p.coverage_percent}%, ${p.gaps} gaps, ${ago(p.progress.updated_at)}</div>
           <div class="small">${p.progress.complete ? `<span class="chip good">Complete</span>` : `${p.progress.done} done, ${p.progress.skipped} skipped`}
           ${p.progress.stuck_events ? ` <span class="chip warn">stuck ${p.progress.stuck_events}×</span>` : ""}${p.progress.coach_sessions ? ` <span class="chip brand">live coach ${p.progress.coach_sessions}×</span>` : ""}</div></div>
         <div class="row">${p.gaps ? `<button class="btn sm ghost" data-recheck="${esc(p.id)}" title="Match this plan against the playbooks recorded since">Re-check coverage</button>` : ""}
           ${p.progress.updated_at ? `<button class="btn sm ghost" data-restart="${esc(p.id)}" title="Clear this plan's progress and start again">Restart</button>` : ""}
-          <a class="btn sm" href="#learn" data-open-plan="${esc(p.id)}">Open</a></div></div>`).join("")
+          <button class="btn sm ghost" data-delete-plan="${esc(p.id)}">Delete</button>
+          <button class="btn sm" data-view-plan="${esc(p.id)}">View</button></div></div>`).join("")
       : `<div class="empty">No onboarding plans yet. Describe a role above to create the first one.</div>`;
   } catch (e) { $("#plansList").innerHTML = `<div class="empty">Couldn't load plans. ${esc(e.message)}</div>`; }
+}
+
+
+// ---------------- assignment, recording requests, delete ----------------
+function assignHtml(plan, id) {
+  const who = plan.assigned_to;
+  return `<div class="assign" id="assign-box">
+    ${who ? `<p class="small">Assigned to <b>${esc(who)}</b>. Only they (and managers) can open this plan. <button class="btn sm ghost" data-assign-edit>Change</button></p>` : ""}
+    <div class="row" ${who ? "hidden" : ""} id="assign-form">
+      <label for="assignEmail" class="small" style="margin:0">Assign to a new hire</label>
+      <input type="text" id="assignEmail" list="newhireList" inputmode="email" placeholder="name@company.com" style="flex:1; min-width:200px">
+      <button class="btn sm primary" data-assign="${esc(id)}">Assign</button>
+      ${state.me?.email ? `<button class="btn sm ghost" data-assign-me="${esc(id)}">Assign to me</button>` : ""}
+    </div></div>`;
+}
+async function assignPlan(id, email) {
+  try {
+    const r = await postJSON(`/api/plans/${id}/assign`, { email });
+    state.lastPlan.assigned_to = r.assigned_to;
+    $("#assign-box").outerHTML = assignHtml(state.lastPlan, id);
+    toast(r.assigned_to ? `Assigned to ${r.assigned_to}. They'll see it when they sign in.` : "Unassigned.", "good");
+    loadPlans(); loadPeople();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function gapRequestHtml(g, i) {
+  const r = (state.planRequests || []).filter(x => x.topic === g.topic).sort((a, b) => b.created_at - a.created_at)[0];
+  if (r?.status === "open") return `<span class="chip brand">Requested from ${esc(r.expert_email)}</span>`;
+  if (r?.status === "done") return `<span class="chip good">Recorded by ${esc(r.expert_email)}</span>`;
+  const declined = r?.status === "declined" ? `<span class="chip warn" title="${esc(r.decline_reason || "")}">Declined by ${esc(r.expert_email)}${r.suggested ? `, suggests ${esc(r.suggested)}` : ""}</span>` : "";
+  return `${declined}<button class="btn sm" data-ask-gap="${i}">Ask an expert</button><button class="btn sm ghost" data-copy-gap="${i}">Copy message</button>`;
+}
+function openAskForm(i) {
+  const g = state.lastPlan.gaps[i], prev = (state.planRequests || []).find(x => x.topic === g.topic && x.status === "declined");
+  $(`#ask-${i}`).innerHTML = `<div class="row" style="margin-top:8px">
+    <input type="text" id="askEmail-${i}" list="expertList" inputmode="email" placeholder="expert@company.com" value="${esc(prev?.suggested || "")}" style="flex:1; min-width:200px" aria-label="Expert's email">
+    <button class="btn sm primary" data-ask-send="${i}">Send request</button></div>
+    <p class="small muted" style="margin:6px 0 0">They'll see it under Capture when they sign in, and recording it updates this plan's coverage automatically.</p>`;
+  $(`#askEmail-${i}`).focus();
+}
+async function sendAsk(i) {
+  const g = state.lastPlan.gaps[i], email = $(`#askEmail-${i}`).value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast("Enter the expert's email address.", "bad");
+  try {
+    const r = await postJSON("/api/requests", { plan_id: state.lastPlanId, topic: g.topic, expert_email: email });
+    state.planRequests = [...(state.planRequests || []), r];
+    renderPlan(state.lastPlan, state.lastPlanId, state.planRequests);
+    toast(`Asked ${email} to record “${g.topic}”.`, "good"); loadPeople();
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+async function viewPlan(id) {
+  try {
+    const r = await call(`/api/plans/${id}`);
+    state.titles = r.playbook_titles || {};
+    renderPlan(r.plan, id, r.requests || []);
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+function deletePlan(id, btn) {
+  const row = btn.closest(".plan-row"); row.classList.add("leaving"); row.style.opacity = ".4";
+  const commit = setTimeout(async () => {
+    try { await call(`/api/plans/${id}`, { method: "DELETE" }); if (state.lastPlanId === id) $("#planOut").innerHTML = ""; loadPlans(); }
+    catch (e) { row.style.opacity = ""; toast(e.message, "bad"); }
+  }, 5000);
+  toast("Plan deleted.", "info", 5000, { label: "Undo", onClick: () => { clearTimeout(commit); row.style.opacity = ""; } });
+}
+
+async function loadPeople() {
+  if (state.me?.role !== "manager") return;
+  try {
+    const p = await call("/api/people");
+    $("#expertList").innerHTML = (p.expert || []).map(e => `<option value="${esc(e)}">`).join("");
+    $("#newhireList").innerHTML = (p.newhire || []).map(e => `<option value="${esc(e)}">`).join("");
+  } catch {}
+}
+
+// Experts: "Requests for you" on the Capture page. Recording (any way) while a request is active answers it.
+async function loadRequests() {
+  const box = $("#reqBox");
+  if (state.me?.role !== "expert") { box.innerHTML = ""; return; }
+  try {
+    const { requests } = await call("/api/requests");
+    const open = requests.filter(r => r.status === "open"), closed = requests.filter(r => r.status !== "open").slice(0, 3);
+    box.innerHTML = `<div class="card"><h2>Recording requests for you (${open.length})</h2>
+      <p class="muted small">A manager found these gaps in a new hire's plan. Record each once (2 to 3 minutes); the plan updates by itself.</p>
+      ${open.map(r => `<div class="gap"><b>${esc(r.topic)}</b><div class="small">${esc(r.why_needed)}</div>
+        <div class="foot"><span class="small">For a new ${esc(r.plan_role)}${r.assigned_to ? ` (${esc(r.assigned_to)})` : ""}, needed by day ${esc(r.needed_by_day)}. Asked by ${esc(r.created_by?.name || r.created_by?.email || "a manager")}</span>
+        <span class="row"><button class="btn sm primary" data-req-record="${esc(r.id)}">Record it</button><button class="btn sm ghost" data-req-decline="${esc(r.id)}">Decline</button></span></div>
+        <div id="decline-${esc(r.id)}"></div></div>`).join("") || `<div class="empty">No open requests. Nice.</div>`}
+      ${closed.length ? `<p class="small muted" style="margin-top:10px">Recent: ${closed.map(r => `${esc(r.topic)} (${r.status})`).join(", ")}</p>` : ""}</div>`;
+    state.requests = requests;
+  } catch (e) { box.innerHTML = `<div class="empty">Couldn't load your requests. ${esc(e.message)}</div>`; }
+}
+function startRequest(id) {
+  const r = state.requests.find(x => x.id === id); state.activeReq = r;
+  $("#reqActive").innerHTML = `<div class="hint" style="margin-bottom:14px"><b>Recording for this request:</b> ${esc(r.topic)}.
+    Record your screen, upload a video or import from YouTube below; it will be linked to the request.
+    <button class="btn sm ghost" data-req-cancel style="float:right">Cancel</button></div>`;
+  $("#hint").value = r.topic; $("#reqActive").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+function requestAnswered(info) {
+  if (!info) return;
+  state.activeReq = null; $("#reqActive").innerHTML = "";
+  const moved = info.coverage_after !== undefined && info.coverage_after !== info.coverage_before;
+  toast(moved ? `Request done. The plan's coverage went from ${info.coverage_before}% to ${info.coverage_after}%.`
+              : `Request done. The manager can see your recording${info.coverage_after !== undefined ? `; coverage stays ${info.coverage_after}% until it matches a task` : ""}.`,
+        "good", 8000);
+  loadRequests();
+}
+function openDecline(id) {
+  $(`#decline-${CSS.escape(id)}`).innerHTML = `<div class="row" style="margin-top:8px">
+    <input type="text" id="declineWhy-${esc(id)}" placeholder="Why? e.g. Not my area" style="flex:1; min-width:160px" aria-label="Reason">
+    <input type="text" id="declineWho-${esc(id)}" list="expertList" placeholder="Who to ask instead (optional)" style="flex:1; min-width:160px" aria-label="Who to ask instead">
+    <button class="btn sm" data-req-decline-send="${esc(id)}">Send</button></div>`;
+}
+async function sendDecline(id) {
+  try {
+    await postJSON(`/api/requests/${id}/decline`, { reason: $(`#declineWhy-${CSS.escape(id)}`).value, suggest: $(`#declineWho-${CSS.escape(id)}`).value });
+    if (state.activeReq?.id === id) { state.activeReq = null; $("#reqActive").innerHTML = ""; }
+    toast("Declined. The manager will see your note.");
+    loadRequests();
+  } catch (e) { toast(e.message, "bad"); }
 }
 
 // ---------------- 3. new hire ----------------
@@ -501,7 +680,12 @@ async function loadPlanPicker() {
     $("#planPick").innerHTML = plans.length
       ? plans.map(p => `<option value="${esc(p.id)}" ${p.id === want ? "selected" : ""}>${esc(p.role)} (${p.progress.percent}% done, coverage ${p.coverage_percent}%)</option>`).join("")
       : `<option value="">No plans yet</option>`;
-    if (!plans.length) { $("#learnOut").innerHTML = `<div class="empty">No onboarding plan yet. <a href="#plan">Build one</a> first.</div>`; return; }
+    if (!plans.length) {
+      $("#learnOut").innerHTML = state.me?.role === "newhire"
+        ? `<div class="empty">No onboarding plan is assigned to you yet. Your manager assigns plans to <b>${esc(state.me.email)}</b>.${state.me.demo ? " In this demo, switch to Manager and use “Assign to me” on a plan." : ""}</div>`
+        : `<div class="empty">No onboarding plan yet. <a href="#plan">Build one</a> first.</div>`;
+      return;
+    }
     if (want !== state.planId || !state.plan) await openPlan(want); else renderLearn();
   } catch (e) { $("#learnOut").innerHTML = `<div class="empty">Couldn't load your plans. ${esc(e.message)}</div>`; }
 }
@@ -714,6 +898,18 @@ document.addEventListener("click", (e) => {
   }
   else if (d.recheck) recheckPlan(d.recheck, t);
   else if (d.restart) restartPlan(d.restart, t);
+  else if (d.roleSet) setRole(d.roleSet);
+  else if (d.assign) assignPlan(d.assign, $("#assignEmail").value.trim());
+  else if (d.assignMe) assignPlan(d.assignMe, state.me.email);
+  else if (d.assignEdit !== undefined) { $("#assign-form").hidden = false; $("#assignEmail").focus(); }
+  else if (d.askGap) openAskForm(+d.askGap);
+  else if (d.askSend) sendAsk(+d.askSend);
+  else if (d.viewPlan) viewPlan(d.viewPlan);
+  else if (d.deletePlan) deletePlan(d.deletePlan, t);
+  else if (d.reqRecord) startRequest(d.reqRecord);
+  else if (d.reqDecline) openDecline(d.reqDecline);
+  else if (d.reqDeclineSend) sendDecline(d.reqDeclineSend);
+  else if (d.reqCancel !== undefined) { state.activeReq = null; $("#reqActive").innerHTML = ""; }
   else if (d.ytImport !== undefined) importYouTube();
   else if (d.ytPlaylist !== undefined) findYouTube(true);
   else if (d.openPlan) { remember(d.openPlan); state.plan = null; }   // the #learn link then opens it
