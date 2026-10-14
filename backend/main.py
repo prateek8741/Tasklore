@@ -14,6 +14,8 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   GET  /api/playbooks       list the team's playbook library (newest first)
   GET  /api/playbooks/{id}  one playbook
   DELETE /api/playbooks/{id}  remove a playbook
+  POST /api/playbooks/{id}/suggestions  new hires' questions on this playbook -> Gemini's suggested changes
+  POST /api/playbooks/{id}/improve      apply the approved changes (new version), or dismiss them
   POST /api/plan            role description -> onboarding plan + computed coverage + gap report
   GET  /api/plans           manager view: all plans with progress
   GET  /api/plans/{id}      one plan with its saved progress (resume after refresh)
@@ -23,6 +25,8 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   POST /api/session/voice   'I'm stuck', spoken (any language) -> spoken-language hint
   POST /api/speak           text -> speech (read a hint aloud)
   POST /api/coach/start     single-use token for a live voice coach (Gemini Live API, voice + screen)
+  GET  /api/knowledge       team knowledge map: per role, what is recorded and what lives only in someone's head
+  POST /api/knowledge/briefing  Gemini's short risk briefing on that map
 """
 import array
 import io
@@ -40,12 +44,13 @@ from fastapi.staticfiles import StaticFiles
 import access
 import auth
 import gemini
+import insights
 import mock_data
 import prompts
 import youtube
-from schemas import (AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, PlanDraft, Playbook, PlanRequest,
-                     Recheck, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest, YouTubeCaptureRequest,
-                     YouTubeResolveRequest)
+from schemas import (ApplyImprovements, AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, Improvements,
+                     PlanDraft, Playbook, PlanRequest, Recheck, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest,
+                     YouTubeCaptureRequest, YouTubeResolveRequest)
 from store import store
 
 logging.basicConfig(level=logging.INFO)
@@ -236,7 +241,12 @@ def _playbooks_visible_to(member: dict) -> set[str] | None:
 @app.get("/api/playbooks")
 def list_playbooks(member: dict = AnyRole):
     visible = _playbooks_visible_to(member)
-    items = [{"id": k, **v} for k, v in store.list("playbooks").items() if visible is None or k in visible]
+    library = store.list("playbooks")
+    items = [{"id": k, **v} for k, v in library.items() if visible is None or k in visible]
+    if visible is None:   # managers and experts: where new hires got stuck since each playbook was last reviewed
+        sig = insights.signals(library, store.list("plans"))
+        for p in items:
+            p["signals"] = sig.get(p["id"])
     items.sort(key=lambda p: p.get("created_at", 0), reverse=True)
     return {"playbooks": items}
 
@@ -250,15 +260,98 @@ def get_playbook(playbook_id: str, member: dict = AnyRole):
     return {"id": playbook_id, "playbook": pb}
 
 
-@app.delete("/api/playbooks/{playbook_id}")
-def delete_playbook(playbook_id: str, member: dict = Creator):
+def _editable_playbook(member: dict, playbook_id: str, verb: str) -> dict:
+    """Managers may change any playbook; experts only the ones they recorded."""
     pb = store.get("playbooks", playbook_id)
     if not pb:
         raise HTTPException(404, "Playbook not found")
     if member["role"] != "manager" and (pb.get("created_by") or {}).get("uid") != member["uid"]:
-        raise HTTPException(403, "Experts can only delete playbooks they recorded.")
+        raise HTTPException(403, f"Experts can only {verb} playbooks they recorded.")
+    return pb
+
+
+@app.delete("/api/playbooks/{playbook_id}")
+def delete_playbook(playbook_id: str, member: dict = Creator):
+    _editable_playbook(member, playbook_id, "delete")
     store.delete("playbooks", playbook_id)
     return {"deleted": playbook_id}
+
+
+# ---------------- self-improving playbooks ----------------
+# Every "I'm stuck" on a plan step points at the playbook that step uses. Those questions go back to the
+# recorder: Gemini proposes new gotchas, clearer steps and FAQ answers, and a person approves them.
+MAX_QUESTIONS = 30
+
+
+@app.post("/api/playbooks/{playbook_id}/suggestions")
+def suggest_improvements(playbook_id: str, member: dict = Creator):
+    pb = _editable_playbook(member, playbook_id, "improve")
+    found = insights.new_struggles(playbook_id, pb, store.list("plans"))
+    asked = [q for q in found if q["kind"] == "stuck"][-MAX_QUESTIONS:]
+    if not asked:
+        raise HTTPException(400, "No new-hire questions on this playbook since it was last reviewed.")
+    t = time.time()
+    if gemini.is_mock():
+        draft, model = mock_data.mock_improvements(pb, asked), "mock"
+    else:
+        model, resp = gemini.generate(prompts.IMPROVE_USER.format(
+            title=pb["title"], goal=pb["goal"], gotchas="; ".join(pb.get("gotchas", [])) or "(none)",
+            steps="\n".join(f"{i}: {s['title']}: {s['action']}" for i, s in enumerate(pb["steps"])),
+            success="; ".join(pb.get("success_criteria", [])) or "(none)", faq=_faq_text(pb),
+            questions="\n".join(f"{i}: {q['step']} | {q['note'] or '(no note)'} | {q['hint'][:300] or '(none)'} | "
+                                f"{'yes' if q['resolved'] else 'no'}" for i, q in enumerate(asked))),
+            schema=Improvements, system=prompts.IMPROVE_SYSTEM)
+        draft = _parsed(resp, Improvements)
+    keep = []
+    for s in draft["suggestions"][:5]:   # drop what can't be applied
+        if s["kind"] == "step" and not 0 <= s["step_index"] < len(pb["steps"]):
+            continue
+        if not s["text"].strip() or (s["kind"] == "gotcha" and s["text"] in pb.get("gotchas", [])):
+            continue
+        s["evidence"] = sorted({i for i in s["evidence"] if 0 <= i < len(asked)})
+        if s["kind"] == "step":
+            s["current"] = pb["steps"][s["step_index"]]["action"]   # shown next to the rewrite
+        keep.append(s)
+    # Questions go back without names: the recorder sees what was hard, not who found it hard.
+    return {"id": playbook_id, "model": model, "ms": int((time.time() - t) * 1000), "summary": draft["summary"],
+            "version": pb.get("version", 1),
+            "suggestions": keep, "people": len({q["by"] or q["plan_id"] for q in found}),
+            "coach_sessions": sum(q["kind"] == "coach" for q in found),
+            "questions": [{k: q[k] for k in ("step", "note", "spoken", "resolved", "at")} for q in asked]}
+
+
+@app.post("/api/playbooks/{playbook_id}/improve")
+def improve_playbook(playbook_id: str, req: ApplyImprovements, member: dict = Creator):
+    """Apply the approved suggestions as a new version. With none, the questions are just marked as reviewed."""
+    pb = _editable_playbook(member, playbook_id, "improve")
+    changes = []
+    for s in req.suggestions:
+        text = s.text.strip()[:600]
+        if s.kind == "gotcha" and text and text not in pb.get("gotchas", []):
+            pb["gotchas"] = pb.get("gotchas", []) + [text]
+            pb["learned_gotchas"] = pb.get("learned_gotchas", []) + [text]
+            changes.append({"kind": "gotcha", "text": text})
+        elif s.kind == "step" and text and 0 <= s.step_index < len(pb["steps"]):
+            step = pb["steps"][s.step_index]
+            changes.append({"kind": "step", "step_index": s.step_index, "before": step["action"], "text": text})
+            step.update(action=text, improved=True)
+        elif s.kind == "faq" and text and s.answer.strip():
+            pb["faq"] = pb.get("faq", []) + [{"q": text, "a": s.answer.strip()[:600], "from": len(s.evidence) or 1}]
+            changes.append({"kind": "faq", "text": text})
+    now = time.time()
+    pb["reviewed_at"] = now
+    if changes:
+        pb["version"] = pb.get("version", 1) + 1
+        pb["learned_from"] = pb.get("learned_from", 0) + req.based_on
+        pb["improved_at"] = now
+        pb["history"] = (pb.get("history", []) + [{"at": now, "by": _who(member), "version": pb["version"],
+                                                    "based_on": req.based_on, "changes": changes}])[-20:]
+    store.put("playbooks", pb, doc_id=playbook_id)
+    return {"id": playbook_id, "playbook": pb, "applied": len(changes), "version": pb.get("version", 1)}
+
+
+def _faq_text(pb: dict) -> str:
+    return " | ".join(f"Q: {f['q']} A: {f['a']}" for f in pb.get("faq", [])) or "(none)"
 
 
 # ---------------- plan + gaps ----------------
@@ -394,6 +487,7 @@ def _recheck(plan_id: str) -> dict:
 def restart_plan(plan_id: str, member: dict = Learner):
     """Start the plan over: progress, stuck notes and coach usage are cleared; tasks, gaps and timetable stay."""
     plan = access.plan_for(member, plan_id)
+    plan["past_log"] = (plan.get("past_log", []) + _progress(plan)["log"])[-300:]   # still counts for improving playbooks
     plan["progress"] = _new_progress(len(plan["items"]))
     plan["restarts"] = plan.get("restarts", 0) + 1
     plan["restarted_at"] = time.time()
@@ -516,7 +610,8 @@ def _playbook_context(item: dict) -> dict:
     return {"pb_title": pb["title"] if pb else "(no playbook recorded for this task)",
             "steps": "; ".join(f"{s['title']}: {s['action']}" for s in pb["steps"]) if pb else "(no playbook)",
             "gotchas": "; ".join(pb.get("gotchas", [])) if pb else "(none)",
-            "success": "; ".join(pb.get("success_criteria", [])) if pb else "(none)"}
+            "success": "; ".join(pb.get("success_criteria", [])) if pb else "(none)",
+            "faq": _faq_text(pb) if pb else "(none)"}
 
 
 def _earlier_help(prog: dict, i: int) -> str:
@@ -650,6 +745,28 @@ def coach_start(req: CoachRequest, user: dict = Learner):
     # The first thing the coach hears: it greets them by name and asks where they're stuck in this exact step.
     token["greeting"] = f'(Session started. Greet {name} by first name and ask where they are stuck in "{item["title"]}".)'
     return token
+
+
+# ---------------- knowledge map: what's recorded, and what lives only in someone's head ----------------
+def _knowledge() -> dict:
+    return insights.knowledge_map(store.list("plans"), store.list("playbooks"), store.list("requests"))
+
+
+@app.get("/api/knowledge", dependencies=[Manager])
+def knowledge():
+    return _knowledge()
+
+
+@app.post("/api/knowledge/briefing", dependencies=[Manager])
+def knowledge_briefing():
+    """Gemini reads the computed map (not the raw data) and says what to record first, and from whom."""
+    m = _knowledge()
+    if not m["roles"]:
+        raise HTTPException(400, "Build an onboarding plan first: the map is made from your plans' core tasks.")
+    if gemini.is_mock():
+        return {"model": "mock", "text": mock_data.MOCK_BRIEFING}
+    model, resp = gemini.generate(insights.briefing_facts(m), system=prompts.BRIEFING_SYSTEM)
+    return {"model": model, "text": resp.text.strip()}
 
 
 # Local dev convenience: serve the web app from the same server.
