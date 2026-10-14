@@ -18,16 +18,23 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   GET  /api/plans           manager view: all plans with progress
   GET  /api/plans/{id}      one plan with its saved progress (resume after refresh)
   POST /api/plans/{id}/recheck  re-match the plan's tasks against the current library -> new coverage + gaps
+  POST /api/plans/{id}/restart  start a plan over (progress cleared, plan kept)
   POST /api/session         new hire reports done / stuck / already_know -> plan adapts, progress saved
+  POST /api/session/voice   'I'm stuck', spoken (any language) -> spoken-language hint
+  POST /api/speak           text -> speech (read a hint aloud)
+  POST /api/coach/start     single-use token for a live voice coach (Gemini Live API, voice + screen)
 """
+import array
+import io
 import json
 import logging
 import os
 import time
+import wave
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import auth
@@ -35,8 +42,8 @@ import gemini
 import mock_data
 import prompts
 import youtube
-from schemas import (PlanDraft, Playbook, PlanRequest, Recheck, SessionRequest, SessionResponse,
-                     YouTubeCaptureRequest, YouTubeResolveRequest)
+from schemas import (CoachRequest, PlanDraft, Playbook, PlanRequest, Recheck, SessionRequest, SessionResponse,
+                     SpeakRequest, YouTubeCaptureRequest, YouTubeResolveRequest)
 from store import store
 
 logging.basicConfig(level=logging.INFO)
@@ -285,6 +292,7 @@ def _summary(p: dict) -> dict:
     finished = sum(x in FINISHED for x in s)
     return {"total": len(s), "done": s.count("done"), "skipped": s.count("skipped"),
             "stuck_now": s.count("stuck"), "stuck_events": sum(e["outcome"] == "stuck" for e in p["log"]),
+            "coach_sessions": sum(e["outcome"] == "coach" for e in p["log"]),
             "percent": round(100 * finished / len(s)) if s else 100, "complete": bool(s) and finished == len(s),
             "updated_at": p.get("updated_at")}
 
@@ -334,6 +342,19 @@ def recheck_plan(plan_id: str):
             "playbook_titles": {pid: p["title"] for pid, p in library.items()}}
 
 
+@app.post("/api/plans/{plan_id}/restart", dependencies=[SignedIn])
+def restart_plan(plan_id: str):
+    """Start the plan over: progress, stuck notes and coach usage are cleared; tasks, gaps and timetable stay."""
+    plan = store.get("plans", plan_id)
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    plan["progress"] = _new_progress(len(plan["items"]))
+    plan["restarts"] = plan.get("restarts", 0) + 1
+    plan["restarted_at"] = time.time()
+    store.put("plans", plan, doc_id=plan_id)
+    return {"id": plan_id, "plan": plan, "summary": _summary(plan["progress"])}
+
+
 @app.get("/api/plans/{plan_id}", dependencies=[SignedIn])
 def get_plan(plan_id: str):
     plan = store.get("plans", plan_id)
@@ -347,27 +368,72 @@ def get_plan(plan_id: str):
 
 
 # ---------------- session: the new hire reports progress, the plan adapts ----------------
-@app.post("/api/session", response_model=SessionResponse)
-def session(req: SessionRequest, user: dict = SignedIn):
-    plan = store.get("plans", req.plan_id)
+def _plan_item(plan_id: str, item_index: int) -> tuple[dict, dict]:
+    plan = store.get("plans", plan_id)
     if not plan:
         raise HTTPException(404, "Plan not found")
-    items = plan["items"]
-    if not 0 <= req.item_index < len(items):
+    if not 0 <= item_index < len(plan["items"]):
         raise HTTPException(400, "item_index out of range")
-    item, i = items[req.item_index], req.item_index
+    return plan, plan["items"][item_index]
+
+
+def _playbook_context(item: dict) -> dict:
+    """The team's playbook for this plan item, as text for a prompt."""
+    pb = store.get("playbooks", item["playbook_id"]) if item.get("playbook_id") else None
+    return {"pb_title": pb["title"] if pb else "(no playbook recorded for this task)",
+            "steps": "; ".join(f"{s['title']}: {s['action']}" for s in pb["steps"]) if pb else "(no playbook)",
+            "gotchas": "; ".join(pb.get("gotchas", [])) if pb else "(none)",
+            "success": "; ".join(pb.get("success_criteria", [])) if pb else "(none)"}
+
+
+def _earlier_help(prog: dict, i: int) -> str:
+    """What the new hire said and what they were told the earlier times they were stuck on this item."""
+    return " | ".join(f'they said "{e["note"] or "(nothing)"}", you advised: {e.get("hint", "")[:400]}'
+                      for e in prog["log"] if e["item_index"] == i and e["outcome"] == "stuck") or "(none)"
+
+
+def _save_progress(plan_id: str, plan: dict, prog: dict, entry: dict, nxt) -> dict:
+    prog["current"] = nxt
+    prog["log"] = (prog["log"] + [entry])[-100:]
+    prog["updated_at"] = entry["at"]
+    plan["progress"] = prog
+    store.put("plans", plan, doc_id=plan_id)
+    return prog
+
+
+def _stuck(plan_id: str, plan: dict, i: int, note: str, user: dict, spoken: bool = False) -> SessionResponse:
+    """Stay on this item and give a hint grounded in the playbook (and in what they said, typed or spoken)."""
+    item, prog = plan["items"][i], _progress(plan)
+    if gemini.is_mock():
+        hint = mock_data.MOCK_HINT
+    else:
+        _, resp = gemini.generate(prompts.STUCK_USER.format(
+            title=item["title"], detail=item["detail"], earlier=_earlier_help(prog, i), note=note or "(no note)",
+            **{k: v for k, v in _playbook_context(item).items() if k != "pb_title"}), system=prompts.STUCK_SYSTEM)
+        hint = resp.text
+    prog["status"][i] = "stuck"
+    entry = {"at": time.time(), "item_index": i, "outcome": "stuck", "note": note[:500], "hint": hint,
+             "by": user.get("email", ""), **({"spoken": True} if spoken else {})}
+    prog = _save_progress(plan_id, plan, prog, entry, i)
+    return SessionResponse(branch="hint", next_item_index=i, message=hint, heard=note if spoken else None,
+                           progress=prog, summary=_summary(prog))
+
+
+@app.post("/api/session", response_model=SessionResponse)
+def session(req: SessionRequest, user: dict = SignedIn):
+    plan, item = _plan_item(req.plan_id, req.item_index)
+    if req.outcome == "stuck":
+        return _stuck(req.plan_id, plan, req.item_index, req.note, user)
+    items, i = plan["items"], req.item_index
     prog = _progress(plan)
     status = prog["status"]
-    entry = {"at": time.time(), "item_index": i, "outcome": req.outcome, "note": req.note[:500],
-             "by": user.get("email", "")}
+    entry = {"at": time.time(), "item_index": i, "outcome": req.outcome, "note": req.note[:500], "by": user.get("email", "")}
 
     if req.outcome == "done":
         status[i] = "done"
         nxt = _next_open(status, i)
-        branch, message = "next", ("Nice work. On to the next item." if nxt is not None else "Plan complete! 🎉")
-
-    elif req.outcome == "already_know":
-        # Skip the whole topic: this item and every later item that uses the same playbook.
+        branch, message = "next", ("Nice work. On to the next item." if nxt is not None else "Plan complete. Well done.")
+    else:  # already_know: skip the whole topic, this item and every later item that uses the same playbook
         pb = item.get("playbook_id")
         skipped = [j for j in range(i, len(items)) if j == i or (pb and items[j].get("playbook_id") == pb)]
         for j in skipped:
@@ -378,33 +444,76 @@ def session(req: SessionRequest, user: dict = SignedIn):
         titles = ", ".join(f'"{items[j]["title"]}"' for j in skipped)
         branch, message = "skip", f"Skipped {titles}, since you already know this."
 
-    else:  # stuck: stay on this item and give a hint grounded in the playbook
-        status[i] = "stuck"
-        nxt = i
-        pb = store.get("playbooks", item["playbook_id"]) if item.get("playbook_id") else None
-        before = [e for e in prog["log"] if e["item_index"] == i and e["outcome"] == "stuck"]
-        earlier = [f'they said "{e["note"] or "(nothing)"}", you advised: {e.get("hint", "")[:400]}' for e in before]
-        if gemini.is_mock():
-            hint = mock_data.MOCK_HINT
-        else:
-            _, resp = gemini.generate(prompts.STUCK_USER.format(
-                title=item["title"], detail=item["detail"],
-                steps="; ".join(f"{s['title']}: {s['action']}" for s in pb["steps"]) if pb else "(no playbook)",
-                gotchas="; ".join(pb.get("gotchas", [])) if pb else "(none)",
-                success="; ".join(pb.get("success_criteria", [])) if pb else "(none)",
-                earlier=" | ".join(earlier) or "(none)", note=req.note or "(no note)"),
-                system=prompts.STUCK_SYSTEM)
-            hint = resp.text
-        entry["hint"] = hint
-        branch, message = "hint", hint
+    prog = _save_progress(req.plan_id, plan, prog, entry, nxt)
+    return SessionResponse(branch=branch, next_item_index=nxt, message=message, progress=prog, summary=_summary(prog))
 
-    prog["current"] = nxt
-    prog["log"] = (prog["log"] + [entry])[-100:]
-    prog["updated_at"] = entry["at"]
-    plan["progress"] = prog
-    store.put("plans", plan, doc_id=req.plan_id)
-    return SessionResponse(branch=branch, next_item_index=nxt, message=message, progress=prog,
-                           summary=_summary(prog))
+
+# ---------------- voice ----------------
+MAX_VOICE_MB = 10
+
+
+@app.post("/api/session/voice", response_model=SessionResponse)
+def session_voice(plan_id: str = Form(...), item_index: int = Form(...), file: UploadFile = File(...), user: dict = SignedIn):
+    """'I'm stuck', spoken. 1) a loudness check, 2) Gemini writes down what was said (no task context, so it can't
+    invent a likely question), 3) the normal hint, in the language they spoke."""
+    data = file.file.read()
+    mime = (file.content_type or "audio/wav").split(";")[0]
+    if not data or not mime.startswith("audio/"):
+        raise HTTPException(400, "No recording received. Tap Ask by voice, speak, then tap again.")
+    if len(data) > MAX_VOICE_MB * 1024 * 1024:
+        raise HTTPException(413, "That recording is too long. Keep the question under a minute.")
+    plan, _ = _plan_item(plan_id, item_index)
+    heard = "" if _too_quiet(data, mime) else ("(mock) spoken question" if gemini.is_mock() else gemini.transcribe(data, mime))
+    if not heard:
+        prog = _progress(plan)
+        return SessionResponse(branch="retry", next_item_index=item_index, heard="", progress=prog, summary=_summary(prog),
+                               message="I couldn't hear a question. Check your microphone, then tap Ask by voice and speak a little closer.")
+    return _stuck(plan_id, plan, item_index, heard, user, spoken=True)
+
+
+def _too_quiet(data: bytes, mime: str) -> bool:
+    """True for (nearly) silent WAV recordings. Other formats skip the check."""
+    if mime not in ("audio/wav", "audio/x-wav", "audio/wave"):
+        return False
+    try:
+        with wave.open(io.BytesIO(data)) as w:
+            if w.getsampwidth() != 2:
+                return False
+            samples = array.array("h", w.readframes(w.getnframes()))
+    except (wave.Error, EOFError):
+        return False
+    if not samples:
+        return True
+    loudest = sorted(abs(x) for x in samples[::8])[-max(1, len(samples) // 8 // 50):]   # top 2% of sampled amplitudes
+    return sum(loudest) / len(loudest) < 600   # speech peaks are typically in the thousands
+
+
+def _voice_available():
+    if gemini.is_mock():
+        raise HTTPException(503, "Voice needs Gemini. Set GEMINI_API_KEY to use it.")
+
+
+@app.post("/api/speak", dependencies=[SignedIn])
+def speak(req: SpeakRequest):
+    """Read a hint aloud: text -> WAV in a natural voice (Gemini text-to-speech)."""
+    _voice_available()
+    audio, mime = gemini.speak(req.text)
+    return Response(content=audio, media_type=mime, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.post("/api/coach/start")
+def coach_start(req: CoachRequest, user: dict = SignedIn):
+    """Start a live voice coach for the new hire's current item. Returns a single-use token; the browser then
+    talks to the Gemini Live API directly (voice + optional screen), grounded in this item's playbook."""
+    _voice_available()
+    plan, item = _plan_item(req.plan_id, req.item_index)
+    prog = _progress(plan)
+    instruction = prompts.COACH_SYSTEM.format(role=plan["role"], day=item["day"], title=item["title"], detail=item["detail"],
+                                              earlier=_earlier_help(prog, req.item_index), **_playbook_context(item))
+    token = gemini.live_token(instruction)
+    entry = {"at": time.time(), "item_index": req.item_index, "outcome": "coach", "note": "", "by": user.get("email", "")}
+    _save_progress(req.plan_id, plan, prog, entry, prog["current"])   # the manager sees that the coach was used
+    return token
 
 
 # Local dev convenience: serve the web app from the same server.

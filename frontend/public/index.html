@@ -188,7 +188,21 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   <a href="#system">System check</a>
   <a href="https://github.com/prateek8741/firstrung" target="_blank" rel="noopener">Source on GitHub</a>
 </footer>
+<div id="coachDock" class="coach" hidden role="dialog" aria-label="Live coach">
+  <div class="coach-head">
+    <span class="coach-dot" aria-hidden="true"></span>
+    <div><b>Live coach</b> <span id="coachStatus" class="small muted">Connecting…</span></div>
+    <div class="row" style="margin-left:auto">
+      <button class="btn sm" data-action="coach-screen">Share my screen</button>
+      <button class="btn sm danger" data-action="coach-end">End</button>
+    </div>
+  </div>
+  <div class="bar thin coach-level"><div id="coachLevel" style="width:0%"></div></div>
+  <div id="coachCaptions" class="coach-captions" aria-live="polite"></div>
+  <p class="small muted" style="margin:6px 0 0">Talk normally, in English or Hindi. Headphones work best. The coach sees your screen only while you share it.</p>
+</div>
 <div id="toasts" aria-live="polite"></div>
+<script src="voice.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

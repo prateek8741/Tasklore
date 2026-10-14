@@ -33,12 +33,16 @@ The API is the product; the web app is only the first client. Every endpoint exc
 | `POST /api/capture` | Screen recording (multipart `file`, optional `hint`) → structured playbook. The web app calls the Cloud Run URL directly for this one (it can take longer than Hosting's 60 s limit) |
 | `POST /api/youtube/resolve` | `{url, whole_playlist}`: a YouTube video or playlist link → its videos with title, channel, length, and whether each can be imported (public, ≤ 30 min, not already in the library). No Gemini call, nothing spent yet |
 | `POST /api/capture/youtube` | `{video_id, hint}` → playbook. Gemini watches the public video straight from its URL; nothing is downloaded. Timestamps in the playbook link back to that moment on YouTube |
+| `POST /api/session/voice` | Multipart `plan_id`, `item_index`, `file` (WAV): a spoken "I'm stuck" → what was heard + a hint in the same language |
+| `POST /api/speak` | `{text}` → WAV audio (Gemini text-to-speech) |
+| `POST /api/coach/start` | `{plan_id, item_index}` → single-use token for a live voice coach session (Gemini Live API) |
 | `GET /api/playbooks` | The team's playbook library, newest first |
 | `GET /api/playbooks/{id}` · `DELETE /api/playbooks/{id}` | One playbook / remove it |
 | `POST /api/plan` | `{role_description, days}` → onboarding plan, coverage %, **gap report** |
 | `GET /api/plans` | Manager view: every plan with progress (% through, done, skipped, times stuck) |
 | `GET /api/plans/{id}` | One plan with its saved progress, so the new hire resumes after a refresh or on another device |
 | `POST /api/plans/{id}/recheck` | Re-match an existing plan's core tasks against the current library, after someone has recorded a gap. Coverage and gaps are recomputed; the plan and the new hire's progress are kept |
+| `POST /api/plans/{id}/restart` | Start a plan over: progress, stuck notes and coach usage are cleared; the tasks, gaps and timetable stay. The web app offers Undo for 5 seconds first |
 | `POST /api/session` | `{plan_id, item_index, outcome: done/stuck/already_know, note}` → the plan adapts and progress is saved. "Already know" skips the whole topic (every later item using the same playbook); "stuck" returns a hint grounded in that playbook's steps and gotchas, and tries a new angle if earlier advice didn't help |
 
 Interactive API docs are at `/docs` on the Cloud Run URL.
@@ -49,6 +53,16 @@ Interactive API docs are at `/docs` on the Cloud Run URL.
 2. For each task it names the library playbook that actually teaches it, or none. The API discards any playbook ID that doesn't exist.
 3. **Coverage is computed by the API, not guessed by the model**: the importance-weighted share of core tasks that have a playbook. Uncovered tasks become the gap report, most important first, and the plan schedules a "shadow" session before each one is needed.
 4. **Closing the loop**: a plan is a snapshot of the library when it was built. When someone records a missing task, "Re-check coverage" matches the plan against today's library (by job outcome, not exact wording). Tested: an Accounts Executive plan went from 12% to 31% after a Hindi-narrated invoice reconciliation was recorded.
+
+### Voice: listen, ask by voice, live coach
+
+On the new hire's current task:
+
+- **Listen**: any hint is read aloud by Gemini text-to-speech (`gemini-3.8-flash-lite-tts`, falling back to `gemini-3.8-flash-tts`).
+- **Ask by voice**: tap, say what you're stuck on in English, Hindi or Hinglish, tap again. The API checks the recording isn't silent, Gemini writes down what was said (with no task context, so it can't invent a likely question from noise), and the hint comes back in the same language and is read aloud.
+- **Talk to a live coach**: a real-time voice conversation with the **Gemini Live API** (`gemini-3.8-live`). The coach is grounded in that task's playbook (steps, gotchas, checks) and in earlier stuck notes. With **Share my screen** it sees one picture per second of the new hire's screen and talks about what it actually sees. The new hire can interrupt at any time; captions show both sides.
+
+How the live coach stays secure: the browser connects to Gemini directly over a WebSocket for low latency, using a **single-use token** (30-minute expiry) minted by `POST /api/coach/start`. The coach's instructions, voice and settings are locked into the token, and the real API key never leaves Cloud Run. Context-window compression keeps audio + screen sessions from stopping after 2 minutes.
 
 ### Import from YouTube
 
@@ -133,7 +147,7 @@ After that, `./deploy.sh api` ships backend changes and `./deploy.sh web` ships 
 
 ## Models
 
-`GEMINI_MODELS` (set in `infra/cloud_run.tf`) is a fallback list, tried in order: `gemini-flash-latest,gemini-3-flash-preview`. `gemini-2.5-*` models are avoided because they shut down on 16 October 2026.
+`GEMINI_MODELS` (set in `infra/cloud_run.tf`) is a fallback list, tried in order: `gemini-flash-latest,gemini-3-flash-preview`. `gemini-2.5-*` models are avoided because they shut down on 16 October 2026. Voice uses Gemini's dedicated speech models: `gemini-3.8-live` (live coach) and `gemini-3.8-flash-lite-tts` / `gemini-3.8-flash-tts` (read aloud), configurable with `GEMINI_LIVE_MODEL` and `GEMINI_TTS_MODELS`.
 
 Note: a project linked to a billing account uses the Gemini API paid tier, which needs prepaid credits bought in AI Studio. Google Cloud free-trial credits don't cover Gemini API usage.
 

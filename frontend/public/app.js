@@ -446,6 +446,20 @@ const ago = (t) => { if (!t) return "not started yet"; const m = Math.round((Dat
 
 const fmtDate = (t) => t ? new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 
+// Restart with Undo instead of an "are you sure?" dialog: progress is cleared only after 5 s.
+function restartPlan(id, btn) {
+  btn.disabled = true;
+  const commit = setTimeout(async () => {
+    try {
+      const r = await call(`/api/plans/${id}/restart`, { method: "POST" });
+      if (state.planId === id) { state.plan = r.plan; state.progress = r.plan.progress; state.openSteps = null; renderLearn(); }
+      loadPlans(); toast("Plan restarted from the first step.", "good");
+    } catch (e) { toast(e.message, "bad"); btn.disabled = false; }
+  }, 5000);
+  toast("Restarting this plan: progress and stuck notes will be cleared.", "info", 5000,
+        { label: "Undo", onClick: () => { clearTimeout(commit); btn.disabled = false; } });
+}
+
 // Plans are snapshots of the library when they were built. Re-checking matches the plan's core tasks
 // against today's library, so a gap someone has since recorded now counts as covered.
 async function recheckPlan(id, btn) {
@@ -468,8 +482,9 @@ async function loadPlans() {
         <div class="grow"><b>${esc(p.role)}</b> <span class="small muted">created ${fmtDate(p.created_at)}</span>
           <div class="small muted">Coverage ${p.coverage_percent}%, ${p.gaps} gaps, ${ago(p.progress.updated_at)}</div>
           <div class="small">${p.progress.complete ? `<span class="chip good">Complete</span>` : `${p.progress.done} done, ${p.progress.skipped} skipped`}
-          ${p.progress.stuck_events ? ` <span class="chip warn">stuck ${p.progress.stuck_events}×</span>` : ""}</div></div>
+          ${p.progress.stuck_events ? ` <span class="chip warn">stuck ${p.progress.stuck_events}×</span>` : ""}${p.progress.coach_sessions ? ` <span class="chip brand">live coach ${p.progress.coach_sessions}×</span>` : ""}</div></div>
         <div class="row">${p.gaps ? `<button class="btn sm ghost" data-recheck="${esc(p.id)}" title="Match this plan against the playbooks recorded since">Re-check coverage</button>` : ""}
+          ${p.progress.updated_at ? `<button class="btn sm ghost" data-restart="${esc(p.id)}" title="Clear this plan's progress and start again">Restart</button>` : ""}
           <a class="btn sm" href="#learn" data-open-plan="${esc(p.id)}">Open</a></div></div>`).join("")
       : `<div class="empty">No onboarding plans yet. Describe a role above to create the first one.</div>`;
   } catch (e) { $("#plansList").innerHTML = `<div class="empty">Couldn't load plans. ${esc(e.message)}</div>`; }
@@ -501,7 +516,8 @@ async function openPlan(id) {
 }
 
 const ST_ICON = { done: "✓", skipped: "↷", stuck: "?" };
-function renderLearn(message, kind = "") {
+function renderLearn(message, kind = "", heard = null) {
+  state.lastHint = message && kind !== "good" ? message : null;
   const { plan, progress } = state; if (!plan) return;
   const s = progress.status, n = s.length, finished = s.filter(x => x === "done" || x === "skipped").length;
   const pct = n ? Math.round(100 * finished / n) : 100;
@@ -522,9 +538,14 @@ function renderLearn(message, kind = "") {
         <button class="btn primary" data-outcome="done">Done, next step</button>
         <button class="btn" data-outcome="stuck">I'm stuck</button>
         <button class="btn ghost" data-outcome="already_know">I already know this</button></div>
-      ${message ? `<div class="hint ${kind}">${esc(message)}</div>` : ""}</div>`
+      <div class="row voice-row">
+        <button class="btn ghost" data-action="ask-voice" title="Say what you're stuck on, in English or Hindi">Ask by voice</button>
+        <button class="btn ghost" data-action="coach" title="A voice conversation with a coach who knows this playbook and can see your screen">Talk to a live coach</button>
+        <span class="small muted">Speak in English or Hindi</span></div>
+      ${message ? `<div class="hint ${kind}">${state.lastHint ? `<button class="btn sm listen" data-action="listen">Listen</button>` : ""}${heard ? `<span class="heard">You asked: “${esc(heard)}”</span>` : ""}${esc(message)}</div>` : ""}</div>`
     : `<div class="card done-banner"><div class="check-big" aria-hidden="true">✓</div><h2>You've finished your onboarding plan</h2>
-        <p class="muted">${esc(message || "Great work. Your manager can see your progress.")}</p></div>`}
+        <p class="muted">${esc(message || "Great work. Your manager can see your progress.")}</p>
+        <button class="btn" data-restart="${esc(state.planId)}">Start this plan again</button></div>`}
     <div class="card status-list"><h2>Your plan</h2>${plan.items.map((x, i) => (i === 0 || plan.items[i - 1].day !== x.day ? `<h3 style="margin:12px 0 6px">Day ${x.day}</h3>` : "") +
       `<div class="pi ${s[i] || ""} ${i === progress.current ? "current" : ""}"><span class="st ${s[i] || ""}" aria-label="${s[i] || "to do"}">${ST_ICON[s[i]] || ""}</span>
         <div><span class="k ${esc(x.kind)}">${esc(x.kind)}</span><div><b>${esc(x.title)}</b></div><div class="small muted">${esc(x.detail)}</div></div></div>`).join("")}</div>`;
@@ -554,6 +575,109 @@ async function report(outcome, btn) {
   } catch (e) { toast(e.message, "bad"); renderLearn(); }
 }
 
+
+// ---------------- voice: listen, ask by voice, live coach ----------------
+// Listen: a hint read aloud by Gemini text-to-speech (any language the hint is in).
+async function speakText(text, btn) {
+  if (state.audio) { state.audio.pause(); state.audio = null; $$("[data-action=listen]").forEach(b => b.textContent = "Listen"); return; }
+  if (btn) btn.textContent = "Preparing audio…";
+  try {
+    const t = await token();
+    const r = await fetch(API + "/api/speak", { method: "POST", body: JSON.stringify({ text }),
+      headers: { "Content-Type": "application/json", ...(t ? { Authorization: "Bearer " + t } : {}) } });
+    if (!r.ok) { const b = await r.json().catch(() => ({})); throw new ApiError(friendly(r.status, b.detail), r.status); }
+    const url = URL.createObjectURL(await r.blob()), audio = new Audio(url);
+    state.audio = audio;
+    audio.onended = () => { state.audio = null; URL.revokeObjectURL(url); $$("[data-action=listen]").forEach(b => b.textContent = "Listen"); };
+    $$("[data-action=listen]").forEach(b => b.textContent = "Stop");
+    await audio.play();
+  } catch (e) { state.audio = null; if (btn) btn.textContent = "Listen"; toast(e.message, "bad"); }
+}
+
+// Ask by voice: tap to start, tap again to send. Gemini understands the question and answers in the same language.
+async function askByVoice(btn) {
+  if (state.rec) return finishVoice();
+  const chunks = [], started = Date.now();
+  let loudest = 0;
+  const mic = new MicCapture(c => { chunks.push(c); loudest = Math.max(loudest, mic.level); });
+  try { await mic.start(); } catch { return toast("The microphone is blocked. Allow microphone access for this site and try again.", "bad", 7000); }
+  state.rec = { mic, chunks, started, loudest: () => loudest, timer: setInterval(() => {
+    const secs = Math.round((Date.now() - started) / 1000), b = $("[data-action=ask-voice]");
+    if (b) { b.classList.add("recording"); b.textContent = `Stop and ask (${fmtTime(secs)})`; }
+    if (secs >= 60) finishVoice();   // keep questions short
+  }, 250) };
+  btn.classList.add("recording"); btn.textContent = "Stop and ask (0:00)";
+}
+async function finishVoice() {
+  const rec = state.rec; if (!rec) return;
+  state.rec = null; clearInterval(rec.timer); rec.mic.stop();
+  const b = $("[data-action=ask-voice]");
+  if (b) { b.classList.remove("recording"); b.textContent = "Thinking…"; b.disabled = true; }
+  if (Date.now() - rec.started < 700) { toast("That was very short. Tap, ask your question, then tap again."); return renderLearn(); }
+  if (rec.loudest() < 0.02) {   // the microphone never picked up a voice: don't send silence
+    toast("I couldn't hear anything. Check that the right microphone is selected and not muted.", "bad", 7000); return renderLearn();
+  }
+  const form = new FormData();
+  form.append("plan_id", state.planId); form.append("item_index", state.progress.current);
+  form.append("file", wavFromPcm16(rec.chunks), "question.wav");
+  try {
+    const r = await call("/api/session/voice", { method: "POST", body: form });
+    state.progress = r.progress;
+    renderLearn(r.message, "", r.heard);
+    if (r.branch === "hint") speakText(r.message, $("[data-action=listen]"));   // answer out loud, since the question was spoken
+  } catch (e) { toast(e.message, "bad"); renderLearn(); }
+}
+
+// Live coach: a voice conversation (Gemini Live API) grounded in this task's playbook, optionally seeing the screen.
+function coachCaption(who, text) {
+  const box = $("#coachCaptions");
+  if (who === null) { state.coachLine = null; return; }
+  if (who === "system") { box.insertAdjacentHTML("beforeend", `<p class="system">${esc(text)}</p>`); }
+  else {
+    if (!state.coachLine || state.coachLine.who !== who) {
+      const p = document.createElement("p"); p.className = who === "you" ? "you" : "coach-line";
+      p.innerHTML = `<b>${who === "you" ? "You" : "Coach"}:</b> <span></span>`;
+      box.append(p); state.coachLine = { who, span: p.querySelector("span") };
+    }
+    state.coachLine.span.textContent += text;
+  }
+  box.scrollTop = box.scrollHeight;
+}
+function coachStatus(text, cls) { $("#coachStatus").textContent = text; $("#coachDock").className = `coach ${cls || ""}`; }
+
+async function startCoach(btn) {
+  if (state.coach) return;
+  const dock = $("#coachDock");
+  $("#coachCaptions").innerHTML = ""; state.coachLine = null;
+  dock.hidden = false; document.body.classList.add("coach-open");
+  $("[data-action=coach-screen]").hidden = !navigator.mediaDevices?.getDisplayMedia;   // phones can't share a screen from the browser
+  coachStatus("Connecting…", "connecting"); btn.disabled = true;
+  const coach = state.coach = new LiveCoach({ caption: coachCaption, ended: (reason) => endCoachUi(reason) });
+  try {
+    const tok = await postJSON("/api/coach/start", { plan_id: state.planId, item_index: state.progress.current });
+    await coach.start(tok);
+    state.coachTimer = setInterval(() => {
+      if (!state.coach) return;
+      $("#coachLevel").style.width = `${Math.min(100, Math.round(state.coach.level * 180))}%`;
+      if (state.coach.speaking) coachStatus("Coach is speaking. Talk any time to interrupt.", "speaking");
+      else coachStatus(state.coach.sharing ? "Listening, and watching your shared screen" : "Listening");
+    }, 150);
+  } catch (e) { toast(e.message, "bad", 7000); coach.stop(); }
+  btn.disabled = false;
+}
+function endCoachUi(reason) {
+  clearInterval(state.coachTimer); state.coach = null;
+  $("#coachDock").hidden = true; document.body.classList.remove("coach-open");
+  $("[data-action=coach-screen]").textContent = "Share my screen";
+  if (reason) toast("The live coach session ended: " + reason);
+}
+async function toggleCoachScreen(btn) {
+  const coach = state.coach; if (!coach) return;
+  if (coach.sharing) { coach.stopScreen(); btn.textContent = "Share my screen"; return; }
+  try { await coach.shareScreen(() => btn.textContent = "Share my screen"); btn.textContent = "Stop sharing"; }
+  catch { toast("Screen sharing was cancelled."); }
+}
+
 // ---------------- system check ----------------
 $$("[data-check]").forEach(b => b.onclick = async () => {
   const label = b.textContent; b.disabled = true; b.textContent = "Checking…";
@@ -576,6 +700,11 @@ document.addEventListener("click", (e) => {
   else if (d.action === "retry-upload") state.retry?.();
   else if (d.action === "close-playbook") $("#capOut").innerHTML = "";
   else if (d.action === "toggle-steps") toggleSteps();
+  else if (d.action === "listen") speakText(state.lastHint, t);
+  else if (d.action === "ask-voice") askByVoice(t);
+  else if (d.action === "coach") startCoach(t);
+  else if (d.action === "coach-end") state.coach?.stop();
+  else if (d.action === "coach-screen") toggleCoachScreen(t);
   else if (d.viewPb) viewPlaybook(d.viewPb);
   else if (d.delPb) deletePlaybook(d.delPb, t);
   else if (d.copyGap) copyGap(+d.copyGap);
@@ -584,6 +713,7 @@ document.addEventListener("click", (e) => {
     setTheme(t.getAttribute("aria-pressed") === "true" ? modes[(modes.indexOf(d.themeSet) + 1) % 3] : d.themeSet);
   }
   else if (d.recheck) recheckPlan(d.recheck, t);
+  else if (d.restart) restartPlan(d.restart, t);
   else if (d.ytImport !== undefined) importYouTube();
   else if (d.ytPlaylist !== undefined) findYouTube(true);
   else if (d.openPlan) { remember(d.openPlan); state.plan = null; }   // the #learn link then opens it
