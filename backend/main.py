@@ -23,6 +23,7 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   POST /api/plans/{id}/restart  start a plan over (progress cleared, plan kept)
   POST /api/session         new hire reports done / stuck / already_know -> plan adapts, progress saved
   POST /api/session/voice   'I'm stuck', spoken (any language) -> spoken-language hint
+  POST /api/session/proof   screenshot of a practice result -> Gemini checks it against the playbook's "done right when"
   POST /api/speak           text -> speech (read a hint aloud)
   POST /api/coach/start     single-use token for a live voice coach (Gemini Live API, voice + screen)
   GET  /api/knowledge       team knowledge map: per role, what is recorded and what lives only in someone's head
@@ -48,7 +49,7 @@ import insights
 import mock_data
 import prompts
 import youtube
-from schemas import (ApplyImprovements, AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, Improvements,
+from schemas import (ApplyImprovements, ProofCheck, AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, Improvements,
                      PlanDraft, Playbook, PlanRequest, Recheck, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest,
                      YouTubeCaptureRequest, YouTubeResolveRequest)
 from store import store
@@ -430,6 +431,8 @@ def _summary(p: dict) -> dict:
     return {"total": len(s), "done": s.count("done"), "skipped": s.count("skipped"),
             "stuck_now": s.count("stuck"), "stuck_events": sum(e["outcome"] == "stuck" for e in p["log"]),
             "coach_sessions": sum(e["outcome"] == "coach" for e in p["log"]),
+            "verified": len({e["item_index"] for e in p["log"] if e["outcome"] == "done" and e.get("verified")}),
+            "proof_tries": sum(e["outcome"] == "proof" for e in p["log"]),
             "percent": round(100 * finished / len(s)) if s else 100, "complete": bool(s) and finished == len(s),
             "updated_at": p.get("updated_at")}
 
@@ -616,8 +619,9 @@ def _playbook_context(item: dict) -> dict:
 
 def _earlier_help(prog: dict, i: int) -> str:
     """What the new hire said and what they were told the earlier times they were stuck on this item."""
-    return " | ".join(f'they said "{e["note"] or "(nothing)"}", you advised: {e.get("hint", "")[:400]}'
-                      for e in prog["log"] if e["item_index"] == i and e["outcome"] == "stuck") or "(none)"
+    return " | ".join(f'they said "{e["note"] or "(nothing)"}", you advised: {e.get("hint", "")[:400]}' if e["outcome"] == "stuck"
+                      else f'their screenshot check said: {e["note"]}'
+                      for e in prog["log"] if e["item_index"] == i and e["outcome"] in ("stuck", "proof")) or "(none)"
 
 
 def _save_progress(plan_id: str, plan: dict, prog: dict, entry: dict, nxt) -> dict:
@@ -697,6 +701,56 @@ def session_voice(plan_id: str = Form(...), item_index: int = Form(...), file: U
         return SessionResponse(branch="retry", next_item_index=item_index, heard="", progress=prog, summary=_summary(prog),
                                message="I couldn't hear a question. Check your microphone, then tap Ask by voice and speak a little closer.")
     return _stuck(plan_id, plan, item_index, heard, user, spoken=True)
+
+
+# ---------------- proof of practice: a screenshot of the result, checked by Gemini ----------------
+MAX_IMAGE_MB = 7
+IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp", "image/heic", "image/heif")
+
+
+@app.post("/api/session/proof", response_model=SessionResponse)
+def session_proof(plan_id: str = Form(...), item_index: int = Form(...), file: UploadFile = File(...), user: dict = Learner):
+    """The new hire uploads a screenshot of their finished work. Gemini checks it against the playbook's
+    'done right when' list. A pass marks the step done and verified; otherwise they get the one fix that matters.
+    The image is not stored; only the result is."""
+    data = file.file.read()
+    mime = (file.content_type or "").split(";")[0]
+    if not data or mime not in IMAGE_TYPES:
+        raise HTTPException(415, "Please upload a screenshot (PNG, JPEG or WebP).")
+    if len(data) > MAX_IMAGE_MB * 1024 * 1024:
+        raise HTTPException(413, f"That image is too large. Keep screenshots under {MAX_IMAGE_MB} MB.")
+    plan, item = _plan_item(user, plan_id, item_index)
+    pb = store.get("playbooks", item["playbook_id"]) if item.get("playbook_id") else None
+    if not pb:
+        raise HTTPException(400, "This step has no recorded playbook, so there is no checklist to check your work against.")
+    prog = _progress(plan)
+    if gemini.is_mock():
+        check = mock_data.mock_proof(pb, first_try=not any(e["item_index"] == item_index and e["outcome"] == "proof" for e in prog["log"]))
+    else:
+        ctx = _playbook_context(item)
+        _, resp = gemini.generate([gemini.image_part(data, mime), prompts.PROOF_USER.format(
+            name=_first_name(user), day=item["day"], title=item["title"], detail=item["detail"],
+            **{k: ctx[k] for k in ("pb_title", "steps", "gotchas", "success")})],
+            schema=ProofCheck, system=prompts.PROOF_SYSTEM)
+        check = _parsed(resp, ProofCheck)
+
+    status, now = prog["status"], time.time()
+    missing = [c["criterion"] for c in check["criteria"] if c["status"] == "missing"] + check["gotchas_seen"]
+    if check["verdict"] == "pass":
+        status[item_index] = "done"
+        nxt = _next_open(status, item_index)
+        entry = {"at": now, "item_index": item_index, "outcome": "done", "verified": True, "note": "(screenshot check passed)",
+                 "by": user.get("email", "")}
+        branch = "verified"
+    else:   # a failed check is also a signal for improving the playbook (see insights.struggles)
+        nxt = item_index
+        entry = {"at": now, "item_index": item_index, "outcome": "proof", "verdict": check["verdict"],
+                 "note": ("missing: " + "; ".join(missing))[:500] if missing else f"({check['verdict'].replace('_', ' ')})",
+                 "hint": check["feedback"], "by": user.get("email", "")}
+        branch = "proof"
+    prog = _save_progress(plan_id, plan, prog, entry, nxt)
+    return SessionResponse(branch=branch, next_item_index=nxt, message=check["feedback"], proof=check,
+                           progress=prog, summary=_summary(prog))
 
 
 def _too_quiet(data: bytes, mime: str) -> bool:

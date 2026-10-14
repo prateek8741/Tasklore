@@ -8,7 +8,7 @@
 
 
 def struggles(plans: dict) -> list[dict]:
-    """Stuck and live-coach events on plan steps that use a playbook, oldest first.
+    """Stuck, failed screenshot-check and live-coach events on plan steps that use a playbook, oldest first.
     Includes runs from before a plan was restarted (kept in plan["past_log"])."""
     out = []
     for plan_id, plan in plans.items():
@@ -16,9 +16,11 @@ def struggles(plans: dict) -> list[dict]:
         log = plan.get("past_log", []) + (plan.get("progress") or {}).get("log", [])
         for k, e in enumerate(log):
             i = e.get("item_index", -1)
-            if e.get("outcome") not in ("stuck", "coach") or not 0 <= i < len(items) or not items[i].get("playbook_id"):
+            if e.get("outcome") not in ("stuck", "coach", "proof") or not 0 <= i < len(items) or not items[i].get("playbook_id"):
                 continue
-            out.append({"playbook_id": items[i]["playbook_id"], "kind": e["outcome"], "note": e.get("note", ""),
+            # a failed screenshot check counts as a question: what was missing is exactly what the playbook should say
+            note = f"(screenshot check) {e.get('note', '')}" if e["outcome"] == "proof" else e.get("note", "")
+            out.append({"playbook_id": items[i]["playbook_id"], "kind": "coach" if e["outcome"] == "coach" else "stuck", "note": note,
                         "hint": e.get("hint", ""), "step": items[i]["title"], "by": e.get("by", ""), "at": e.get("at", 0),
                         "spoken": bool(e.get("spoken")), "plan_id": plan_id,
                         # they pressed "Done" on this step later, so the help they got worked

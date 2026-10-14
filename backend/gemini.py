@@ -147,6 +147,10 @@ def audio_part(data: bytes, mime_type: str):
     return types.Part.from_bytes(data=data, mime_type=mime_type)
 
 
+def image_part(data: bytes, mime_type: str):
+    return types.Part.from_bytes(data=data, mime_type=mime_type)
+
+
 def youtube_part(url: str):
     """Gemini watches a public YouTube video straight from its URL; nothing is downloaded."""
     return types.Part.from_uri(file_uri=url, mime_type="video/*")

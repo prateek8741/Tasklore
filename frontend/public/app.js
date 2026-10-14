@@ -732,7 +732,7 @@ async function loadPlans() {
         <div class="grow"><b>${esc(p.role)}</b> <span class="small muted">created ${fmtDate(p.created_at)}, ${p.assigned_to ? `for ${esc(p.assigned_to)}` : "not assigned yet"}</span>
           <div class="small muted">Coverage ${p.coverage_percent}%, ${p.gaps} gaps, ${ago(p.progress.updated_at)}</div>
           <div class="small">${p.progress.complete ? `<span class="chip good">Complete</span>` : `${p.progress.done} done, ${p.progress.skipped} skipped`}
-          ${p.progress.stuck_events ? ` <span class="chip warn">stuck ${p.progress.stuck_events}×</span>` : ""}${p.progress.coach_sessions ? ` <span class="chip brand">live coach ${p.progress.coach_sessions}×</span>` : ""}</div></div>
+          ${p.progress.stuck_events ? ` <span class="chip warn">stuck ${p.progress.stuck_events}×</span>` : ""}${p.progress.coach_sessions ? ` <span class="chip brand">live coach ${p.progress.coach_sessions}×</span>` : ""}${p.progress.verified ? ` <span class="chip good">verified ${p.progress.verified}×</span>` : ""}</div></div>
         <div class="row">${p.gaps ? `<button class="btn sm ghost" data-recheck="${esc(p.id)}" title="Match this plan against the playbooks recorded since">Re-check coverage</button>` : ""}
           ${p.progress.updated_at ? `<button class="btn sm ghost" data-restart="${esc(p.id)}" title="Clear this plan's progress and start again">Restart</button>` : ""}
           <button class="btn sm ghost" data-delete-plan="${esc(p.id)}">Delete</button>
@@ -889,15 +889,17 @@ $("#planPick").onchange = e => e.target.value && openPlan(e.target.value);
 async function openPlan(id) {
   try {
     const r = await call(`/api/plans/${id}`);
-    Object.assign(state, { plan: r.plan, planId: id, progress: r.plan.progress, titles: r.playbook_titles || {}, openSteps: null, help: null, pbCache: {} });
+    Object.assign(state, { plan: r.plan, planId: id, progress: r.plan.progress, titles: r.playbook_titles || {}, openSteps: null, help: null, proof: null, pbCache: {} });
     remember(id); renderLearn();
   } catch (e) { $("#learnOut").innerHTML = `<div class="empty">Couldn't open this plan. ${esc(e.message)}</div>`; }
 }
 
 const firstName = () => ((state.me?.name || state.user?.displayName || "").trim().split(/\s+/)[0] || "");
 const ST_ICON = { done: "✓", skipped: "↷", stuck: "?" };
+const canProve = (x) => x.kind === "practice" && !!x.playbook_id;   // practice steps have a checklist to check against
 function renderLearn(message, kind = "") {
   const { plan, progress } = state; if (!plan) return;
+  const verified = new Set(progress.log.filter(e => e.outcome === "done" && e.verified).map(e => e.item_index));
   const s = progress.status, n = s.length, finished = s.filter(x => x === "done" || x === "skipped").length;
   const pct = n ? Math.round(100 * finished / n) : 100;
   const it = progress.current == null ? null : plan.items[progress.current];
@@ -912,18 +914,21 @@ function renderLearn(message, kind = "") {
       ${it.playbook_id ? `<button class="btn sm" data-action="toggle-steps">${state.openSteps ? "Hide" : "Show"} the playbook: ${esc(state.titles[it.playbook_id] || "steps")}</button>
         ${state.openSteps || ""}` : ""}
       <div class="row" style="margin-top:12px">
-        <button class="btn primary" data-outcome="done">Done, next step</button>
+        ${canProve(it) ? `<button class="btn primary" data-proof="${progress.current}">Check my work</button>` : ""}
+        <button class="btn ${canProve(it) ? "" : "primary"}" data-outcome="done">Done, next step</button>
         <button class="btn ghost" data-outcome="already_know">I already know this</button></div>
-      <p class="small muted" style="margin:10px 0 0">Stuck on any step? Use <b>I'm stuck</b> or <b>Live coach</b> next to it in your plan below.</p>
+      <p class="small muted" style="margin:10px 0 0">${canProve(it) ? "Finished? <b>Check my work</b>: upload a screenshot of your result and Gemini checks it against your team's checklist. " : ""}Stuck on any step? Use <b>I'm stuck</b> or <b>Live coach</b> next to it in your plan below.</p>
       ${message ? `<div class="hint ${kind}">${esc(message)}</div>` : ""}</div>`
     : `<div class="card done-banner"><div class="check-big" aria-hidden="true">✓</div><h2>You've finished your onboarding plan</h2>
         <p class="muted">${esc(message || "Great work. Your manager can see your progress.")}</p>
         <button class="btn" data-restart="${esc(state.planId)}">Start this plan again</button></div>`}
     <div class="card status-list"><h2>Your plan</h2>${plan.items.map((x, i) => (i === 0 || plan.items[i - 1].day !== x.day ? `<h3 style="margin:12px 0 6px">Day ${x.day}</h3>` : "") +
       `<div class="pi ${s[i] || ""} ${i === progress.current ? "current" : ""}" id="step-${i}"><span class="st ${s[i] || ""}" aria-label="${s[i] || "to do"}">${ST_ICON[s[i]] || ""}</span>
-        <div class="pi-main"><span class="k ${esc(x.kind)}">${esc(x.kind)}</span><div><b>${esc(x.title)}</b></div><div class="small muted">${esc(x.detail)}</div>
-          ${state.help?.index === i ? helpPanel(x, i) : ""}</div>
+        <div class="pi-main"><span class="k ${esc(x.kind)}">${esc(x.kind)}</span>${verified.has(i) ? ` <span class="chip good">Verified by screenshot</span>` : ""}
+          <div><b>${esc(x.title)}</b></div><div class="small muted">${esc(x.detail)}</div>
+          ${state.help?.index === i ? helpPanel(x, i) : ""}${state.proof?.index === i ? proofPanel(x, i) : ""}</div>
         ${s[i] === "done" || s[i] === "skipped" ? "" : `<div class="pi-actions">
+          ${canProve(x) ? `<button class="btn sm ${state.proof?.index === i ? "" : "ghost"}" data-proof="${i}" aria-expanded="${state.proof?.index === i}">Check my work</button>` : ""}
           <button class="btn sm ${state.help?.index === i ? "" : "ghost"}" data-help="${i}" aria-expanded="${state.help?.index === i}">I'm stuck</button>
           <button class="btn sm ghost" data-coach-step="${i}" title="Talk it through with a voice coach who knows this step and can see your screen">Live coach</button></div>`}</div>`).join("")}</div>`;
 }
@@ -971,18 +976,82 @@ function helpPanel(item, i) {
 }
 function toggleHelp(i) {
   state.help = state.help?.index === i ? null : { index: i };
+  state.proof = null;
   renderLearn();
   if (state.help) { $(`#note-${i}`)?.focus(); loadStepFaq(state.plan.items[i].playbook_id, i); }
 }
 // Answers the recorder approved for earlier new hires' questions, shown before they even ask.
-async function loadStepFaq(pbId, i) {
+async function loadStepFaq(pbId, i, forProof = false) {
   state.pbCache ||= {};
   if (!pbId || state.pbCache[pbId]) return;
   try {
     state.pbCache[pbId] = (await call(`/api/playbooks/${pbId}`)).playbook;
+    if (forProof) { if (state.proof?.index === i) renderLearn(); return; }
     if (state.help?.index === i && state.pbCache[pbId].faq?.length) { renderLearn(); $(`#note-${i}`)?.focus(); }
   } catch {}
 }
+// ---------------- proof of practice: a screenshot of the result, checked against "done right when" ----------------
+const VERDICT = { pass: ["good", "Verified: this matches your team's checklist"], almost: ["warn", "Almost there"],
+                  not_yet: ["bad", "Not yet"], unclear: ["", "I can't see this task in the screenshot"] };
+const CHECK_ICON = { met: "✓", missing: "!", cant_tell: "?" };
+const CHECK_LABEL = { met: "done", missing: "missing", cant_tell: "can't tell from a screenshot" };
+
+function proofPanel(item, i) {
+  const pr = state.proof, r = pr.result, pb = state.pbCache?.[item.playbook_id];
+  const [cls, label] = r ? VERDICT[r.verdict] : [];
+  return `<div class="help-panel proof-panel">
+    ${r && !pr.busy ? `<div class="proof-result ${cls}"><b class="verdict">${label}</b><p>${esc(r.feedback)}</p>
+      <ul class="checks">${r.criteria.map(c => `<li class="${c.status}"><span class="ci" aria-label="${CHECK_LABEL[c.status]}">${CHECK_ICON[c.status]}</span>
+        <div>${esc(c.criterion)}${c.evidence ? `<div class="small muted">${esc(c.evidence)}</div>` : ""}</div></li>`).join("")}</ul>
+      ${r.gotchas_seen.length ? `<p class="small" style="margin:8px 0 0"><b>Watch out:</b> ${r.gotchas_seen.map(esc).join("; ")}</p>` : ""}
+      ${pr.preview ? `<img class="proof-thumb" src="${pr.preview}" alt="The screenshot you uploaded">` : ""}</div>` : ""}
+    ${pr.busy ? `<div class="proof-busy">${pr.preview ? `<img class="proof-thumb" src="${pr.preview}" alt="">` : ""}
+        <span><span class="spin" aria-hidden="true"></span> Gemini is checking your screenshot against the checklist…</span></div>`
+      : r?.verdict === "pass" ? "" : `
+      <p class="small" style="margin:0 0 6px"><b>${r ? "Fixed it? Upload a new screenshot." : "Show your finished result."}</b>
+        Take a screenshot of the whole result (for example the full sheet), then paste it here or choose a file.</p>
+      ${pb && !r ? `<p class="small muted" style="margin:0 0 6px">Your team's checklist: ${pb.success_criteria.map(esc).join(" · ")}</p>` : ""}
+      <button class="drop proof-drop" data-proof-pick="${i}"><b>Paste a screenshot</b>
+        <span class="small muted">${navigator.platform?.includes("Mac") ? "⌘" : "Ctrl"} V, drop an image here, or click to choose</span></button>
+      <p class="small muted" style="margin:6px 0 0">Your screenshot is only used for this check and isn't saved. Crop out anything private first.</p>`}
+  </div>`;
+}
+
+function toggleProof(i) {
+  state.proof = state.proof?.index === i ? null : { index: i };
+  state.help = null;
+  renderLearn();
+  if (state.proof) { $(`#step-${i}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); loadStepFaq(state.plan.items[i].playbook_id, i, true); }
+}
+
+// Big retina screenshots are scaled down (still easy to read) so the upload is quick.
+async function shrinkImage(file) {
+  const img = await createImageBitmap(file), scale = Math.min(1, 2400 / img.width);
+  if (scale === 1 && file.size < 2 * 1048576) return file;
+  const c = Object.assign(document.createElement("canvas"), { width: Math.round(img.width * scale), height: Math.round(img.height * scale) });
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return new Promise(done => c.toBlob(b => done(b || file), "image/jpeg", 0.9));
+}
+
+async function sendProof(file) {
+  const pr = state.proof; if (!pr || pr.busy) return;
+  if (!file || !file.type.startsWith("image/")) return toast("Please choose an image: a screenshot of your result.", "bad");
+  let blob = file;
+  try { blob = await shrinkImage(file); } catch {}   // e.g. HEIC the browser can't draw: send as is
+  if (blob.size > 7 * 1048576) return toast("That image is too large. Crop it to the part that shows your result.", "bad");
+  if (pr.preview) URL.revokeObjectURL(pr.preview);
+  pr.preview = URL.createObjectURL(blob); pr.busy = true; renderLearn();
+  const form = new FormData();
+  form.append("plan_id", state.planId); form.append("item_index", pr.index);
+  form.append("file", blob, blob.type === "image/png" ? "screenshot.png" : "screenshot.jpg");
+  try {
+    const r = await call("/api/session/proof", { method: "POST", body: form });
+    state.progress = r.progress; Object.assign(pr, { result: r.proof, busy: false });
+    if (r.branch === "verified") { toast("Verified. This step is done.", "good"); renderLearn(r.message, "good"); }
+    else renderLearn();
+  } catch (e) { pr.busy = false; toast(e.message, "bad"); renderLearn(); }
+}
+
 // One request: the step becomes the current step and the hint appears inside it.
 async function askHint(i, btn) {
   const note = $(`#note-${i}`)?.value || "";
@@ -1120,6 +1189,17 @@ document.addEventListener("change", (e) => {
   if (sp !== undefined) { const [id, k] = sp.split(":"); state.sug[id].picked[+k] = e.target.checked; renderSuggestions(id); }
 });
 
+// Proof of practice: paste a screenshot (the quickest way), drop it, or choose a file.
+$("#proofFile").onchange = e => { sendProof(e.target.files[0]); e.target.value = ""; };
+document.addEventListener("paste", (e) => {
+  if (!state.proof || state.proof.busy || location.hash !== "#learn") return;
+  const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith("image/"));
+  if (f) { e.preventDefault(); sendProof(f); }
+});
+document.addEventListener("dragover", (e) => { const z = e.target.closest?.(".proof-drop"); if (z) { e.preventDefault(); z.classList.add("over"); } });
+document.addEventListener("dragleave", (e) => e.target.closest?.(".proof-drop")?.classList.remove("over"));
+document.addEventListener("drop", (e) => { const z = e.target.closest?.(".proof-drop"); if (z) { e.preventDefault(); sendProof(e.dataTransfer.files[0]); } });
+
 // ---------------- clicks on dynamic content ----------------
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button, a"); if (!t) return;
@@ -1131,6 +1211,8 @@ document.addEventListener("click", (e) => {
   else if (d.action === "toggle-steps") toggleSteps();
   else if (d.action === "listen") speakText(state.help?.message, t);
   else if (d.help) toggleHelp(+d.help);
+  else if (d.proof !== undefined) toggleProof(+d.proof);
+  else if (d.proofPick !== undefined) $("#proofFile").click();
   else if (d.hint) askHint(+d.hint, t);
   else if (d.voice) askByVoice(t, +d.voice);
   else if (d.coachStep) startCoach(t, +d.coachStep);

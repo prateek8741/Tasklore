@@ -138,13 +138,31 @@ class CoachRequest(BaseModel):
     item_index: int
 
 
+# ---------- Proof of practice: a screenshot of the result, checked against "done right when" ----------
+class CriterionCheck(BaseModel):
+    criterion: str = Field(description="The 'done right when' criterion, as given")
+    status: Literal["met", "missing", "cant_tell"] = Field(
+        description="met = clearly visible; missing = visibly not done or wrong; cant_tell = this screenshot can't show it")
+    evidence: str = Field(description="Exactly what you see that decides it (cell, column, value, label). Empty for cant_tell")
+
+
+class ProofCheck(BaseModel):
+    verdict: Literal["pass", "almost", "not_yet", "unclear"] = Field(
+        description="pass = everything visible is right; almost = 1-2 small things missing; not_yet = key parts missing "
+                    "or wrong; unclear = the screenshot doesn't show this task")
+    criteria: list[CriterionCheck]
+    gotchas_seen: list[str] = Field(description="Known gotchas you can actually see in the screenshot; empty if none")
+    feedback: str = Field(description="1-3 warm, specific sentences to the new hire: what is good, then the one most important fix")
+
+
 class SessionResponse(BaseModel):
-    branch: str  # next | skip | hint
+    branch: str  # next | skip | hint | verified | proof
     next_item_index: int | None  # None = plan complete
     message: str
     heard: str | None = None  # for spoken questions: what Gemini heard
     progress: dict  # status per item + log; same shape as plan["progress"]
     summary: dict  # counts and percent complete
+    proof: dict | None = None  # for screenshot checks: Gemini's ProofCheck
 
 
 # ---------- Roles, assignment, recording requests ----------
