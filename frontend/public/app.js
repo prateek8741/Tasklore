@@ -694,14 +694,14 @@ $("#planPick").onchange = e => e.target.value && openPlan(e.target.value);
 async function openPlan(id) {
   try {
     const r = await call(`/api/plans/${id}`);
-    Object.assign(state, { plan: r.plan, planId: id, progress: r.plan.progress, titles: r.playbook_titles || {}, openSteps: null });
+    Object.assign(state, { plan: r.plan, planId: id, progress: r.plan.progress, titles: r.playbook_titles || {}, openSteps: null, help: null });
     remember(id); renderLearn();
   } catch (e) { $("#learnOut").innerHTML = `<div class="empty">Couldn't open this plan. ${esc(e.message)}</div>`; }
 }
 
+const firstName = () => ((state.me?.name || state.user?.displayName || "").trim().split(/\s+/)[0] || "");
 const ST_ICON = { done: "✓", skipped: "↷", stuck: "?" };
-function renderLearn(message, kind = "", heard = null) {
-  state.lastHint = message && kind !== "good" ? message : null;
+function renderLearn(message, kind = "") {
   const { plan, progress } = state; if (!plan) return;
   const s = progress.status, n = s.length, finished = s.filter(x => x === "done" || x === "skipped").length;
   const pct = n ? Math.round(100 * finished / n) : 100;
@@ -709,30 +709,28 @@ function renderLearn(message, kind = "", heard = null) {
   const opt = $("#planPick").selectedOptions[0];
   if (opt) opt.textContent = opt.textContent.replace(/\(\d+% done/, `(${pct}% done`);
   $("#learnOut").innerHTML = `
-    <div class="card"><div class="cover">${ring(pct, "small")}<div><h2>Your plan as ${esc(plan.role)}</h2>
+    <div class="card"><div class="cover">${ring(pct, "small")}<div><h2>${firstName() ? `Hi ${esc(firstName())}, here's your plan as ${esc(plan.role)}` : `Your plan as ${esc(plan.role)}`}</h2>
       <p class="muted small" style="margin:0">${finished} of ${n} steps finished, saved automatically</p></div></div></div>
     ${it ? `<div class="card now">
       <span class="small muted">Now, day ${it.day}: <span class="k ${esc(it.kind)}">${esc(it.kind)}</span></span>
       <h2 style="margin-top:4px">${esc(it.title)}</h2><p>${esc(it.detail)}</p>
       ${it.playbook_id ? `<button class="btn sm" data-action="toggle-steps">${state.openSteps ? "Hide" : "Show"} the playbook: ${esc(state.titles[it.playbook_id] || "steps")}</button>
         ${state.openSteps || ""}` : ""}
-      <label for="note" style="margin-top:14px">Stuck? Say what's confusing <span class="opt">(optional)</span></label>
-      <input type="text" id="note" maxlength="400" placeholder="e.g. XLOOKUP shows #N/A for every row">
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:12px">
         <button class="btn primary" data-outcome="done">Done, next step</button>
-        <button class="btn" data-outcome="stuck">I'm stuck</button>
         <button class="btn ghost" data-outcome="already_know">I already know this</button></div>
-      <div class="row voice-row">
-        <button class="btn ghost" data-action="ask-voice" title="Say what you're stuck on, in English or Hindi">Ask by voice</button>
-        <button class="btn ghost" data-action="coach" title="A voice conversation with a coach who knows this playbook and can see your screen">Talk to a live coach</button>
-        <span class="small muted">Speak in English or Hindi</span></div>
-      ${message ? `<div class="hint ${kind}">${state.lastHint ? `<button class="btn sm listen" data-action="listen">Listen</button>` : ""}${heard ? `<span class="heard">You asked: “${esc(heard)}”</span>` : ""}${esc(message)}</div>` : ""}</div>`
+      <p class="small muted" style="margin:10px 0 0">Stuck on any step? Use <b>I'm stuck</b> or <b>Live coach</b> next to it in your plan below.</p>
+      ${message ? `<div class="hint ${kind}">${esc(message)}</div>` : ""}</div>`
     : `<div class="card done-banner"><div class="check-big" aria-hidden="true">✓</div><h2>You've finished your onboarding plan</h2>
         <p class="muted">${esc(message || "Great work. Your manager can see your progress.")}</p>
         <button class="btn" data-restart="${esc(state.planId)}">Start this plan again</button></div>`}
     <div class="card status-list"><h2>Your plan</h2>${plan.items.map((x, i) => (i === 0 || plan.items[i - 1].day !== x.day ? `<h3 style="margin:12px 0 6px">Day ${x.day}</h3>` : "") +
-      `<div class="pi ${s[i] || ""} ${i === progress.current ? "current" : ""}"><span class="st ${s[i] || ""}" aria-label="${s[i] || "to do"}">${ST_ICON[s[i]] || ""}</span>
-        <div><span class="k ${esc(x.kind)}">${esc(x.kind)}</span><div><b>${esc(x.title)}</b></div><div class="small muted">${esc(x.detail)}</div></div></div>`).join("")}</div>`;
+      `<div class="pi ${s[i] || ""} ${i === progress.current ? "current" : ""}" id="step-${i}"><span class="st ${s[i] || ""}" aria-label="${s[i] || "to do"}">${ST_ICON[s[i]] || ""}</span>
+        <div class="pi-main"><span class="k ${esc(x.kind)}">${esc(x.kind)}</span><div><b>${esc(x.title)}</b></div><div class="small muted">${esc(x.detail)}</div>
+          ${state.help?.index === i ? helpPanel(x, i) : ""}</div>
+        ${s[i] === "done" || s[i] === "skipped" ? "" : `<div class="pi-actions">
+          <button class="btn sm ${state.help?.index === i ? "" : "ghost"}" data-help="${i}" aria-expanded="${state.help?.index === i}">I'm stuck</button>
+          <button class="btn sm ghost" data-coach-step="${i}" title="Talk it through with a voice coach who knows this step and can see your screen">Live coach</button></div>`}</div>`).join("")}</div>`;
 }
 
 async function toggleSteps() {
@@ -748,6 +746,7 @@ async function toggleSteps() {
 }
 
 async function report(outcome, btn) {
+  state.help = null;
   const note = $("#note")?.value || "";
   $$("#learnOut [data-outcome]").forEach(b => b.disabled = true);
   btn.textContent = outcome === "stuck" ? "Thinking…" : "Saving…";
@@ -759,6 +758,38 @@ async function report(outcome, btn) {
   } catch (e) { toast(e.message, "bad"); renderLearn(); }
 }
 
+
+
+// ---------------- help on a step: I'm stuck (typed or spoken), hint inside the step ----------------
+const NEUTRAL_EXAMPLE = "what you tried, and what happened instead";
+function helpPanel(item, i) {
+  const h = state.help;
+  return `<div class="help-panel">
+    <label for="note-${i}" class="small">What's going wrong? <span class="opt">(optional)</span></label>
+    <input type="text" id="note-${i}" maxlength="400" value="${esc(h.draft || "")}" placeholder="e.g. ${esc(item.stuck_example || NEUTRAL_EXAMPLE)}">
+    <div class="row" style="margin-top:8px">
+      <button class="btn sm primary" data-hint="${i}">Get a hint</button>
+      <button class="btn sm ghost" data-voice="${i}" title="Say what's wrong, in English or Hindi">Ask by voice</button>
+      <span class="small muted">English or Hindi</span></div>
+    ${h.message ? `<div class="hint">${h.kind === "hint" ? `<button class="btn sm listen" data-action="listen">Listen</button>` : ""}${h.heard ? `<span class="heard">You asked: “${esc(h.heard)}”</span>` : ""}${esc(h.message)}</div>` : ""}
+  </div>`;
+}
+function toggleHelp(i) {
+  state.help = state.help?.index === i ? null : { index: i };
+  renderLearn();
+  if (state.help) $(`#note-${i}`)?.focus();
+}
+// One request: the step becomes the current step and the hint appears inside it.
+async function askHint(i, btn) {
+  const note = $(`#note-${i}`)?.value || "";
+  btn.disabled = true; btn.textContent = "Thinking…";
+  try {
+    const r = await postJSON("/api/session", { plan_id: state.planId, item_index: i, outcome: "stuck", note });
+    state.progress = r.progress;
+    state.help = { index: i, message: r.message, kind: "hint", draft: note };
+    renderLearn();
+  } catch (e) { toast(e.message, "bad"); btn.disabled = false; btn.textContent = "Get a hint"; }
+}
 
 // ---------------- voice: listen, ask by voice, live coach ----------------
 // Listen: a hint read aloud by Gemini text-to-speech (any language the hint is in).
@@ -779,14 +810,14 @@ async function speakText(text, btn) {
 }
 
 // Ask by voice: tap to start, tap again to send. Gemini understands the question and answers in the same language.
-async function askByVoice(btn) {
+async function askByVoice(btn, index) {
   if (state.rec) return finishVoice();
   const chunks = [], started = Date.now();
   let loudest = 0;
   const mic = new MicCapture(c => { chunks.push(c); loudest = Math.max(loudest, mic.level); });
   try { await mic.start(); } catch { return toast("The microphone is blocked. Allow microphone access for this site and try again.", "bad", 7000); }
-  state.rec = { mic, chunks, started, loudest: () => loudest, timer: setInterval(() => {
-    const secs = Math.round((Date.now() - started) / 1000), b = $("[data-action=ask-voice]");
+  state.rec = { mic, chunks, started, index, loudest: () => loudest, timer: setInterval(() => {
+    const secs = Math.round((Date.now() - started) / 1000), b = $(`[data-voice="${index}"]`);
     if (b) { b.classList.add("recording"); b.textContent = `Stop and ask (${fmtTime(secs)})`; }
     if (secs >= 60) finishVoice();   // keep questions short
   }, 250) };
@@ -795,19 +826,20 @@ async function askByVoice(btn) {
 async function finishVoice() {
   const rec = state.rec; if (!rec) return;
   state.rec = null; clearInterval(rec.timer); rec.mic.stop();
-  const b = $("[data-action=ask-voice]");
+  const b = $(`[data-voice="${rec.index}"]`);
   if (b) { b.classList.remove("recording"); b.textContent = "Thinking…"; b.disabled = true; }
   if (Date.now() - rec.started < 700) { toast("That was very short. Tap, ask your question, then tap again."); return renderLearn(); }
   if (rec.loudest() < 0.02) {   // the microphone never picked up a voice: don't send silence
     toast("I couldn't hear anything. Check that the right microphone is selected and not muted.", "bad", 7000); return renderLearn();
   }
   const form = new FormData();
-  form.append("plan_id", state.planId); form.append("item_index", state.progress.current);
+  form.append("plan_id", state.planId); form.append("item_index", rec.index);
   form.append("file", wavFromPcm16(rec.chunks), "question.wav");
   try {
     const r = await call("/api/session/voice", { method: "POST", body: form });
     state.progress = r.progress;
-    renderLearn(r.message, "", r.heard);
+    state.help = { index: rec.index, message: r.message, heard: r.heard, kind: r.branch };
+    renderLearn();
     if (r.branch === "hint") speakText(r.message, $("[data-action=listen]"));   // answer out loud, since the question was spoken
   } catch (e) { toast(e.message, "bad"); renderLearn(); }
 }
@@ -829,8 +861,8 @@ function coachCaption(who, text) {
 }
 function coachStatus(text, cls) { $("#coachStatus").textContent = text; $("#coachDock").className = `coach ${cls || ""}`; }
 
-async function startCoach(btn) {
-  if (state.coach) return;
+async function startCoach(btn, index) {
+  if (state.coach) return toast("A live coach session is already running. End it first.");
   const dock = $("#coachDock");
   $("#coachCaptions").innerHTML = ""; state.coachLine = null;
   dock.hidden = false; document.body.classList.add("coach-open");
@@ -838,7 +870,9 @@ async function startCoach(btn) {
   coachStatus("Connecting…", "connecting"); btn.disabled = true;
   const coach = state.coach = new LiveCoach({ caption: coachCaption, ended: (reason) => endCoachUi(reason) });
   try {
-    const tok = await postJSON("/api/coach/start", { plan_id: state.planId, item_index: state.progress.current });
+    $("#coachTitle").textContent = `Coaching: ${state.plan.items[index].title}`;
+    const tok = await postJSON("/api/coach/start", { plan_id: state.planId, item_index: index });
+    state.progress.current = index; renderLearn();   // the server made this the current step too
     await coach.start(tok);
     state.coachTimer = setInterval(() => {
       if (!state.coach) return;
@@ -870,6 +904,9 @@ $$("[data-check]").forEach(b => b.onclick = async () => {
   b.disabled = false; b.textContent = label;
 });
 
+document.addEventListener("input", (e) => {
+  if (e.target.id?.startsWith("note-") && state.help) state.help.draft = e.target.value;
+});
 document.addEventListener("change", (e) => {
   const i = e.target.dataset?.ytPick;
   if (i !== undefined) { state.yt.videos[+i].pick = e.target.checked; renderYouTube(); }
@@ -884,9 +921,11 @@ document.addEventListener("click", (e) => {
   else if (d.action === "retry-upload") state.retry?.();
   else if (d.action === "close-playbook") $("#capOut").innerHTML = "";
   else if (d.action === "toggle-steps") toggleSteps();
-  else if (d.action === "listen") speakText(state.lastHint, t);
-  else if (d.action === "ask-voice") askByVoice(t);
-  else if (d.action === "coach") startCoach(t);
+  else if (d.action === "listen") speakText(state.help?.message, t);
+  else if (d.help) toggleHelp(+d.help);
+  else if (d.hint) askHint(+d.hint, t);
+  else if (d.voice) askByVoice(t, +d.voice);
+  else if (d.coachStep) startCoach(t, +d.coachStep);
   else if (d.action === "coach-end") state.coach?.stop();
   else if (d.action === "coach-screen") toggleCoachScreen(t);
   else if (d.viewPb) viewPlaybook(d.viewPb);

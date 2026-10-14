@@ -211,7 +211,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 <div id="coachDock" class="coach" hidden role="dialog" aria-label="Live coach">
   <div class="coach-head">
     <span class="coach-dot" aria-hidden="true"></span>
-    <div><b>Live coach</b> <span id="coachStatus" class="small muted">Connecting…</span></div>
+    <div style="min-width:0"><b>Live coach</b> <span id="coachTitle" class="small"></span><br><span id="coachStatus" class="small muted">Connecting…</span></div>
     <div class="row" style="margin-left:auto">
       <button class="btn sm" data-action="coach-screen">Share my screen</button>
       <button class="btn sm danger" data-action="coach-end">End</button>

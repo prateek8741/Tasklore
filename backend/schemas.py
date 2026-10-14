@@ -52,6 +52,8 @@ class PlanItem(BaseModel):
     kind: Literal["learn", "practice", "meet", "setup"]
     playbook_id: str = Field(description="ID of the playbook used, or empty string if none")
     detail: str = Field(description="One or two sentences on what the new hire does")
+    stuck_example: str = Field(description="One realistic problem a new hire could hit on THIS step, in their own words, "
+                                           "max 14 words, e.g. 'GitHub says Permission denied (publickey) when I clone'")
 
 
 class PlanDraft(BaseModel):

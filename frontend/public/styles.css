@@ -379,3 +379,12 @@ body.coach-open main { padding-bottom: 280px; }   /* keep the page usable behind
 .assign .row { padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); }
 .plan-row.leaving { transition: opacity .25s; }
 @media (max-width: 600px) { .rolebar { justify-content: flex-start; } #roleHint { display: none; } }
+
+/* ---------- help on each step ---------- */
+.status-list .pi { flex-wrap: wrap; }
+.pi-main { flex: 1; min-width: 0; }
+.pi-actions { display: flex; gap: 6px; flex: none; align-self: center; }
+.help-panel { margin-top: 10px; padding: 12px; border-radius: var(--radius-sm); background: var(--surface); }
+.help-panel .hint { margin-top: 10px; }
+#coachTitle { color: var(--muted); }
+@media (max-width: 600px) { .pi-actions { width: 100%; padding-left: 34px; } }
