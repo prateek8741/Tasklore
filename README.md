@@ -6,6 +6,8 @@ AI Builder Cup 2026 · Track: Future of Work & Enterprise Productivity
 
 A senior records their screen while doing a real task and explaining it. Gemini turns the recording into a playbook. A manager describes a new hire's role, and FirstRung builds a day-by-day onboarding plan from the team's playbooks, **flags the knowledge nobody has recorded yet**, and adapts as the new hire works (hints when stuck, skips what they already know).
 
+**What makes it different:** most onboarding tools store what a team already wrote down. FirstRung **measures what is missing** (role coverage, and a team knowledge map of what lives only in someone's head), **gets it recorded** (gap → ask an expert → automatic re-check), and **keeps playbooks improving** from the questions new hires actually ask.
+
 Live: https://firstrung-993fd.web.app
 
 ## Architecture (API-first)
@@ -42,6 +44,9 @@ The API is the product; the web app is only the first client. Every endpoint exc
 | `POST /api/coach/start` | `{plan_id, item_index}` → single-use token for a live voice coach session (Gemini Live API) |
 | `GET /api/playbooks` | The team's playbook library, newest first |
 | `GET /api/playbooks/{id}` · `DELETE /api/playbooks/{id}` | One playbook / remove it |
+| `POST /api/playbooks/{id}/suggestions` | The new hires' "I'm stuck" questions on this playbook since its last review → Gemini's suggested gotchas, clearer steps and FAQ answers (recorder or manager) |
+| `POST /api/playbooks/{id}/improve` | `{suggestions, based_on}` → apply the approved (and possibly edited) changes as a new version; with none, the questions are marked as reviewed |
+| `GET /api/knowledge` · `POST /api/knowledge/briefing` | Team knowledge map (manager): per role, which core tasks are recorded, requested, or only in someone's head, grouped by who holds them · Gemini's short risk briefing on that map |
 | `POST /api/plan` | `{role_description, days}` → onboarding plan, coverage %, **gap report** |
 | `GET /api/plans` | Manager view: every plan with progress (% through, done, skipped, times stuck) |
 | `GET /api/plans/{id}` | One plan with its saved progress, so the new hire resumes after a refresh or on another device |
@@ -57,6 +62,22 @@ Interactive API docs are at `/docs` on the Cloud Run URL.
 2. For each task it names the library playbook that actually teaches it, or none. The API discards any playbook ID that doesn't exist.
 3. **Coverage is computed by the API, not guessed by the model**: the importance-weighted share of core tasks that have a playbook. Uncovered tasks become the gap report, most important first, and the plan schedules a "shadow" session before each one is needed.
 4. **Closing the loop**: a plan is a snapshot of the library when it was built. When someone records a missing task, "Re-check coverage" matches the plan against today's library (by job outcome, not exact wording). Tested: an Accounts Executive plan went from 12% to 31% after a Hindi-narrated invoice reconciliation was recorded.
+
+### Self-improving playbooks
+
+Every "I'm stuck" (typed or spoken) and every live coach session on a plan step is linked to the playbook that step uses. On the Capture page, the recorder (or a manager) sees **"Learn from your new hires"**: which playbooks people struggle with, and the latest question. **Improve with Gemini** reads those questions, the hints they got and whether they then finished the step, and suggests at most five changes: a new gotcha, a clearer step, or an FAQ answer. Each suggestion cites the questions it comes from.
+
+A person stays in charge: they tick what to keep and can correct any text before saving (the hints were AI-written, so the prompt treats facts that aren't in the playbook, such as where a file is kept, as guesses: "Ask the Finance lead where…"). Saving creates a new version; learned gotchas, clarified steps and the FAQ are marked in the playbook. **The next hint and live coach session use the new version immediately**, and new hires see "Other new hires asked" when they open help on that step. Questions are shown to the recorder without names.
+
+### Team knowledge map
+
+A manager page built from each role's core tasks (newest plan per role), the library and recording requests:
+
+- **Only in people's heads**: unrecorded know-how grouped by who holds it today (the expert asked, or the role Gemini suggested), critical first, with **Ask to record** on each task. This is the team's "bus factor": if that person is away or leaves, nobody can teach it.
+- **Coverage by role**: one square per core task (recorded, requested, not recorded, critical and not recorded).
+- **Recorded, but new hires struggle**: playbooks with open new-hire questions, linking to their review.
+- **Who shares know-how**: playbooks per person, the plans that use them and the new hires they helped onboard.
+- **Risk briefing**: Gemini reads the computed map (not raw data) and says in four sentences what to record first, from whom and by when.
 
 ### Roles: manager, expert, new hire
 
@@ -105,7 +126,7 @@ Seniors can narrate in English, Hindi or Hinglish; the playbook is always writte
 
 | Path | What |
 | --- | --- |
-| `backend/` | FastAPI app (`main.py`), Gemini client with model fallback (`gemini.py`), login check (`auth.py`), prompts, schemas, storage |
+| `backend/` | FastAPI app (`main.py`), Gemini client with model fallback (`gemini.py`), login check (`auth.py`), roles (`access.py`), knowledge map and new-hire signals (`insights.py`), prompts, schemas, storage |
 | `frontend/public/` | Web app, no build step: `index.html` (views), `styles.css` (light + dark themes), `app.js` (Google sign-in, API calls, screen recording, plan and new-hire views), `img/` (real product screenshots from real Gemini output, light + dark) |
 | `infra/` | Terraform for all Google Cloud infrastructure |
 | `firestore.rules` | Firestore security rules (deny all direct client access) |

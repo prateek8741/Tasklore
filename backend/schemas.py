@@ -25,6 +25,27 @@ class Playbook(BaseModel):
     narration_language: str = Field(description="Language the narrator spoke, e.g. 'English', 'Hindi', 'Hinglish', or 'none'")
 
 
+# ---------- Self-improving playbooks: new hires' questions become playbook changes ----------
+class Suggestion(BaseModel):
+    kind: Literal["gotcha", "step", "faq"] = Field(
+        description="gotcha = a new mistake to warn about; step = rewrite one step's action; faq = a question new hires ask, with its answer")
+    step_index: int = Field(description="For 'step': 0-based index of the step to rewrite. -1 otherwise")
+    text: str = Field(description="gotcha: the warning. step: the full new action text. faq: the question, in plain words")
+    answer: str = Field(description="faq: the answer in at most 2 sentences. Empty string otherwise")
+    reason: str = Field(description="One sentence: what the new hires struggled with that this fixes")
+    evidence: list[int] = Field(description="Indices of the questions this suggestion is based on")
+
+
+class Improvements(BaseModel):
+    summary: str = Field(description="One sentence: what new hires struggle with on this playbook")
+    suggestions: list[Suggestion] = Field(description="At most 5 changes, most useful first")
+
+
+class ApplyImprovements(BaseModel):
+    suggestions: list[Suggestion] = Field(default=[], max_length=10)   # empty = dismiss: mark the questions as reviewed
+    based_on: int = Field(default=0, ge=0, le=500)                       # how many new-hire questions they came from
+
+
 class YouTubeResolveRequest(BaseModel):
     url: str = Field(min_length=5, max_length=500)
     whole_playlist: bool = False  # for a link to a video inside a playlist: list the playlist instead

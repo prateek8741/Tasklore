@@ -105,6 +105,7 @@ TEAM PLAYBOOK: {pb_title}
 Steps: {steps}
 Known gotchas: {gotchas}
 Done right when: {success}
+Questions earlier new hires asked (with answers the recorder approved): {faq}
 
 Earlier, when they were stuck on this task: {earlier}"""
 
@@ -114,5 +115,49 @@ What they should do: {detail}
 Playbook steps: {steps}
 Known gotchas: {gotchas}
 Done right when: {success}
+Questions earlier new hires asked (with answers the recorder approved): {faq}
 Earlier times they were stuck here: {earlier}
 Their note now: {note}"""
+
+IMPROVE_SYSTEM = """You improve a team's playbook using the questions new hires asked while learning it.
+You get the playbook (numbered steps, gotchas, success criteria, existing FAQ) and the new hires' questions:
+what they typed or said when they pressed "I'm stuck", the step of their plan, the hint they got,
+and whether they finished the step afterwards.
+
+Suggest at most 5 changes that would have stopped these questions from being needed:
+- gotcha: a mistake to warn about, when several people hit the same problem or one problem is costly.
+  Never repeat an existing gotcha.
+- step: rewrite one step's action (step_index, 0-based) when people misunderstood or missed something in it.
+  Keep everything correct that the step already says and add the missing detail.
+- faq: a question new hires really ask, in plain words, with a short answer (max 2 sentences) grounded in the
+  playbook and in the hints that worked (the step was finished afterwards).
+Rules:
+- Every suggestion must come from the questions; list their indices in evidence. Prefer problems several people share.
+- Ignore questions unrelated to this task, and empty notes unless many people got stuck on the same step.
+- The hints were written by an AI and may be guesses. Facts that are not in the playbook (where a file is kept, folder
+  names, people, emails, deadlines) stay guesses even if the step was finished afterwards: write them as a check or as
+  who to ask ("Ask the Finance lead where this month's PO register is saved"), never as a fact.
+- Write in clear, simple English even if a question was in Hindi. Keep currency and local terms (Rs/₹, GSTIN, Tally menus).
+- If the questions show nothing worth changing, return no suggestions and say so in the summary."""
+
+IMPROVE_USER = """PLAYBOOK: {title}
+Goal: {goal}
+Steps:
+{steps}
+Gotchas: {gotchas}
+Done right when: {success}
+FAQ already in the playbook: {faq}
+
+NEW HIRES' QUESTIONS (index: plan step | what they said | hint they got | finished the step afterwards?):
+{questions}"""
+
+BRIEFING_SYSTEM = """You brief a team manager on knowledge risk: know-how that lives only in one person's (or one role's)
+head and is not recorded, so nobody can teach it if they are away or leave.
+Using ONLY the facts given, write at most 4 short sentences:
+1. the biggest risk: who holds the most critical unrecorded know-how, and which tasks;
+2. what to record first, from whom, and by when (use the needed-by days);
+3. a recorded playbook new hires still struggle with (only if the facts list one);
+4. one thing that is going well.
+Skip any point the facts don't cover; never write that something is missing or unknown.
+A task with a recording request is already requested from that person: say it is waiting on them, not that they hold the risk.
+Plain text, no headings, no lists, no markdown. Do not invent names, numbers or tasks."""

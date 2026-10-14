@@ -52,4 +52,21 @@ def mock_plan(role: str, days: int, library: dict) -> dict:
     }
 
 
-MOCK_HINT = "(MOCK) Start by exporting just one week of data so it is easier to check. Then match on invoice number before amount."
+def mock_improvements(playbook: dict, questions: list[dict]) -> dict:
+    """Same shape as schemas.Improvements, built from the real questions so the UI flow can be tested."""
+    asked = next((q["note"] for q in questions if q["note"]), "Where do I find this?")
+    last = max(len(playbook.get("steps", [])) - 1, 0)
+    return {"summary": f"(MOCK) {len(questions)} questions, mostly about the matching step.",
+            "suggestions": [
+                {"kind": "gotcha", "step_index": -1, "text": "(MOCK) Trim spaces in invoice numbers before matching; extra spaces make XLOOKUP return #N/A",
+                 "answer": "", "reason": "New hires saw #N/A on every row", "evidence": [0]},
+                {"kind": "faq", "step_index": -1, "text": asked[:200], "answer": "(MOCK) Ask the finance lead; it is pinned in the team channel.",
+                 "reason": "Asked more than once", "evidence": list(range(len(questions)))[:3]},
+                {"kind": "step", "step_index": min(1, last), "text": "(MOCK) " + playbook["steps"][min(1, last)]["action"] + ", matching on the invoice number column (B), not the amount",
+                 "answer": "", "reason": "People matched on the wrong column", "evidence": [0]}]}
+
+
+MOCK_BRIEFING = ("(MOCK) Your biggest risk is the Finance lead: two critical tasks live only with them. "
+                 "Ask them to record GST filing first, since new hires need it by day 2.")
+
+MOCK_HINT ="(MOCK) Start by exporting just one week of data so it is easier to check. Then match on invoice number before amount."

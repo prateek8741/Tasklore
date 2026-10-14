@@ -87,7 +87,7 @@ function renderAuth() {
 // ---------------- roles: manager, expert, new hire (the API enforces them; the UI mirrors them) ----------------
 const ROLE_NAME = { manager: "Manager", expert: "Expert", newhire: "New hire" };
 const ROLE_HOME = { manager: "#plan", expert: "#capture", newhire: "#learn" };
-const VIEW_ROLES = { capture: ["manager", "expert"], plan: ["manager"], learn: ["manager", "newhire"], system: ["manager"] };
+const VIEW_ROLES = { capture: ["manager", "expert"], plan: ["manager"], knowledge: ["manager"], learn: ["manager", "newhire"], system: ["manager"] };
 const ROLE_HINT = { manager: "builds plans, assigns them and asks experts to record gaps",
                     expert: "records tasks and answers recording requests", newhire: "sees only the plan assigned to them" };
 
@@ -178,8 +178,9 @@ async function upload(path, form, onProgress) {
 const skeleton = (lines = 3) => Array.from({ length: lines }, (_, i) => `<div class="skel line" style="width:${90 - i * 18}%"></div>`).join("");
 
 // ---------------- routing ----------------
-const VIEWS = ["home", "capture", "plan", "learn", "system"];
-const ON_ENTER = { home: loadStats, capture: () => { loadLibrary(); loadRequests(); }, plan: () => { loadPlans(); loadPeople(); }, learn: loadPlanPicker };
+const VIEWS = ["home", "capture", "plan", "knowledge", "learn", "system"];
+const ON_ENTER = { home: loadStats, capture: () => { loadLibrary(); loadRequests(); }, plan: () => { loadPlans(); loadPeople(); },
+                   knowledge: () => { loadKnowledge(); loadPeople(); }, learn: loadPlanPicker };
 function route() {
   let v = location.hash.slice(1) || "home";
   if (!VIEWS.includes(v)) v = "home";
@@ -377,25 +378,37 @@ function playbookCard(p, id, { preview, footer, closable } = {}) {
       ${p.estimated_minutes ? `<span class="chip">~${esc(p.estimated_minutes)} min</span>` : ""}
       ${p.narration_language && p.narration_language !== "English" ? `<span class="chip warn">Narrated in ${esc(p.narration_language)}</span>` : ""}</div>
     ${preview ? `<video class="pb-video" src="${preview}" controls preload="metadata"></video>` : ""}
-    <ol class="timeline">${p.steps.map(s => `<li><b>${esc(s.title)}</b>${tsHtml(s)}
+    <ol class="timeline">${p.steps.map(s => `<li><b>${esc(s.title)}</b>${tsHtml(s)}${improvedMark(s)}
       <div>${esc(s.action)}</div><div class="why">Why: ${esc(s.why)}</div></li>`).join("")}</ol>
-    <div class="lists">
-      <div class="warn"><h3>Watch out for</h3><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>
-      <div class="good"><h3>Done right when</h3><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>
-    </div>
+    ${lessonsHtml(p)}
     ${(p.skills || []).length ? `<p class="small muted" style="margin-top:12px">Skills: ${p.skills.map(esc).join(", ")}</p>` : ""}
-    <p class="small muted">${[by, footer && esc(footer)].filter(Boolean).join(". ")}</p></div>`;
+    <p class="small muted">${[by, versionText(p), footer && esc(footer)].filter(Boolean).join(". ")}</p></div>`;
 }
+
+// What a playbook has learned from new hires is marked, so everyone can see it is a living document.
+const improvedMark = (s) => s.improved ? ` <span class="chip good">Clarified from new hires' questions</span>` : "";
+const versionText = (p) => p.version > 1 ? `Version ${p.version}, improved from ${p.learned_from} new-hire question${p.learned_from === 1 ? "" : "s"}` : "";
+function lessonsHtml(p) {
+  const learned = new Set(p.learned_gotchas || []);
+  return `<div class="lists">
+      <div class="warn"><h3>Watch out for</h3><ul>${p.gotchas.map(g => `<li>${esc(g)}${learned.has(g) ? ` <span class="chip brand">from new hires</span>` : ""}</li>`).join("")}</ul></div>
+      <div class="good"><h3>Done right when</h3><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>
+    </div>${faqHtml(p.faq, "New hires asked")}`;
+}
+const faqHtml = (faq, title) => (faq || []).length ? `<div class="faq"><h3>${title}</h3>${faq.map(f =>
+  `<details><summary>${esc(f.q)}</summary><p>${esc(f.a)}</p></details>`).join("")}</div>` : "";
 
 async function loadLibrary() {
   if (!$("#library .lib-card")) $("#library").innerHTML = `<div class="skel block"></div><div class="skel block"></div>`;
   try {
     const { playbooks } = await call("/api/playbooks");
+    renderImproveBox(playbooks);
     $("#libCount").textContent = playbooks.length ? `${playbooks.length} recorded` : "";
     $("#library").innerHTML = playbooks.length ? playbooks.map(p => `<div class="card lib-card">
         <h3>${esc(p.title)}</h3>
         <span class="small muted">${esc(p.role_hint)}, ${p.steps.length} steps${p.estimated_minutes ? `, about ${esc(p.estimated_minutes)} min` : ""}</span>
         <div>${(p.skills || []).slice(0, 4).map(s => `<span class="chip">${esc(s)}</span>`).join("")}</div>
+        ${p.version > 1 || p.signals?.questions ? `<div>${p.version > 1 ? `<span class="chip good">Version ${p.version}, learned from new hires</span>` : ""}${p.signals?.questions ? `<span class="chip warn">${p.signals.questions} new question${p.signals.questions === 1 ? "" : "s"}</span>` : ""}</div>` : ""}
         ${p.source?.type === "youtube" ? `<span class="small muted">From YouTube, ${esc(p.source.channel)}</span>`
           : p.created_by?.name ? `<span class="small muted">by ${esc(p.created_by.name)}</span>` : ""}
         <div class="actions"><button class="btn sm" data-view-pb="${esc(p.id)}">View</button>
@@ -418,6 +431,188 @@ function deletePlaybook(id, btn) {
     catch (e) { card.classList.remove("leaving"); toast(e.message, "bad"); }
   }, 5000);
   toast("Playbook deleted.", "info", 5000, { label: "Undo", onClick: () => { clearTimeout(commit); card.classList.remove("leaving"); } });
+}
+
+// ---------------- self-improving playbooks ----------------
+// Every "I'm stuck" on a step goes back to the playbook it uses. The recorder (or a manager) asks Gemini what to
+// change, ticks the suggestions worth keeping, and the playbook becomes a new version that hints and the coach use.
+const canEdit = (p) => state.me?.role === "manager" || (p.created_by?.uid && p.created_by.uid === state.me?.uid);
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const KIND_LABEL = { gotcha: "New gotcha", step: "Clearer step", faq: "New FAQ answer" };
+state.sug = {};
+
+function renderImproveBox(playbooks) {
+  const list = playbooks.filter(p => p.signals?.questions);
+  if (!list.length) { $("#improveBox").innerHTML = ""; return; }
+  $("#improveBox").innerHTML = `<div class="card"><h2>Learn from your new hires</h2>
+    <p class="muted small">New hires got stuck on these playbooks. Gemini reads their questions and suggests what to add; you approve each change.
+      The hints and the live coach use the new version straight away.</p>
+    ${list.map(p => { const g = p.signals;
+      return `<div class="sig-row" id="sig-${esc(p.id)}"><div class="grow"><b>${esc(p.title)}</b>
+        <div class="small muted">${plural(g.questions, "question")} from ${plural(g.people, "new hire")}${g.coach ? `, ${plural(g.coach, "live coach session")}` : ""} since ${p.version > 1 ? `version ${p.version}` : "it was recorded"}</div>
+        ${g.last_note ? `<div class="small quote">“${esc(g.last_note)}”</div>` : ""}</div>
+        ${canEdit(p) ? `<button class="btn sm primary" data-improve="${esc(p.id)}">${state.sug[p.id] ? "Ask again" : "Improve with Gemini"}</button>`
+                     : `<span class="small muted">Only ${esc(p.created_by?.name || "the recorder")} or a manager can change it</span>`}
+        <div class="sug-out" id="sug-${esc(p.id)}"></div></div>`; }).join("")}</div>`;
+  Object.keys(state.sug).forEach(renderSuggestions);
+  if (state.improveTarget) {   // arrived from the knowledge map's "Review" button
+    const row = $(`#sig-${CSS.escape(state.improveTarget)}`); state.improveTarget = null;
+    if (row) { row.scrollIntoView({ behavior: "smooth", block: "center" }); row.classList.add("flash"); }
+  }
+}
+
+async function openImprove(id, btn) {
+  btn.disabled = true; btn.textContent = "Gemini is reading the questions…";
+  try {
+    const r = await call(`/api/playbooks/${id}/suggestions`, { method: "POST" });
+    state.sug[id] = { ...r, picked: r.suggestions.map(() => true) };
+    btn.textContent = "Ask again"; renderSuggestions(id);
+  } catch (e) { toast(e.message, "bad"); btn.textContent = "Improve with Gemini"; }
+  btn.disabled = false;
+}
+
+function renderSuggestions(id) {
+  const d = state.sug[id], el = $(`#sug-${CSS.escape(id)}`); if (!d || !el) return;
+  const n = d.picked.filter(Boolean).length;
+  el.innerHTML = `<div class="sug-panel"><p style="margin:0 0 6px"><b>What new hires struggle with:</b> ${esc(d.summary)}</p>
+    <details class="how"><summary>The ${plural(d.questions.length, "question")} Gemini read</summary><ol class="qlist">${d.questions.map(q =>
+      `<li>${q.note ? `“${esc(q.note)}”` : `<span class="muted">(pressed I'm stuck without a note)</span>`}
+        <span class="small muted">on “${esc(q.step)}”${q.spoken ? ", spoken" : ""}${q.resolved ? ", finished the step after the hint" : ""}</span></li>`).join("")}</ol>
+      <p class="small muted" style="margin:0">Shown without names: you see what was hard, not who found it hard.</p></details>
+    ${d.suggestions.length ? `<p class="small muted" style="margin:8px 0 0">Tick what to keep. You know the team best: click any text to correct it before saving.</p>`
+      + d.suggestions.map((x, i) => `<div class="sug ${d.picked[i] ? "on" : ""}">
+      <label class="tick"><input type="checkbox" data-sug-pick="${esc(id)}:${i}" ${d.picked[i] ? "checked" : ""} aria-label="Keep this change"></label>
+      <div><span class="chip ${x.kind === "gotcha" ? "warn" : x.kind === "faq" ? "brand" : "good"}">${KIND_LABEL[x.kind]}${x.kind === "step" ? `, step ${x.step_index + 1}` : ""}</span>
+        ${x.kind === "step" ? `<div class="small muted was">${esc(x.current)}</div>` : ""}
+        <div class="edit ${x.kind === "faq" ? "q" : ""}" contenteditable="plaintext-only" spellcheck="true" data-sug-edit="${esc(id)}:${i}:text">${esc(x.text)}</div>
+        ${x.kind === "faq" ? `<div class="edit small" contenteditable="plaintext-only" spellcheck="true" data-sug-edit="${esc(id)}:${i}:answer">${esc(x.answer)}</div>` : ""}
+        <div class="small muted">${esc(x.reason.trim().replace(/([^.!?])$/, "$1."))}${x.evidence.length ? ` From question${x.evidence.length === 1 ? "" : "s"} ${x.evidence.map(e => e + 1).join(", ")}.` : ""}</div></div></div>`).join("")
+      : `<p class="small muted">Gemini found nothing worth changing in these questions.</p>`}
+    <div class="row" style="margin-top:10px">
+      ${d.suggestions.length ? `<button class="btn sm primary" data-sug-apply="${esc(id)}" ${n ? "" : "disabled"}>Save ${plural(n, "change")} as version ${(d.version || 1) + 1}</button>` : ""}
+      <button class="btn sm ghost" data-sug-dismiss="${esc(id)}">Mark as reviewed</button></div></div>`;
+}
+
+async function applyImprove(id, btn, dismiss = false) {
+  const d = state.sug[id], chosen = dismiss ? [] : d.suggestions.filter((_, i) => d.picked[i]);
+  btn.disabled = true;
+  try {
+    const r = await postJSON(`/api/playbooks/${id}/improve`, { suggestions: chosen, based_on: d.questions.length });
+    delete state.sug[id];
+    if (r.applied) {
+      toast(`Saved as version ${r.version}. Hints and the live coach use it now.`, "good", 7000);
+      $("#capOut").innerHTML = playbookCard(r.playbook, id, { closable: true });
+      $("#capOut").scrollIntoView({ behavior: "smooth" });
+    } else toast("Marked as reviewed. New questions will show up here again.");
+    loadLibrary();
+  } catch (e) { toast(e.message, "bad"); btn.disabled = false; }
+}
+
+// ---------------- knowledge map ----------------
+// Built from each role's core tasks (the newest plan per role): recorded, requested, or only in someone's head.
+const KM_STATUS = { recorded: "Recorded", requested: "Recording requested", declined: "Declined, not recorded", missing: "Only in someone's head" };
+
+async function loadKnowledge() {
+  try { state.km = await call("/api/knowledge"); renderKnowledge(); }
+  catch (e) { $("#kmOut").innerHTML = `<div class="empty">Couldn't load the knowledge map. ${esc(e.message)}</div>`; }
+}
+
+function renderKnowledge() {
+  const m = state.km, t = m.team;
+  if (!m.roles.length) {
+    $("#kmOut").innerHTML = `<div class="empty">No map yet. <a href="#plan">Build an onboarding plan</a> first: the map is made from each role's core tasks.</div>`;
+    return;
+  }
+  $("#kmOut").innerHTML = `
+    <div class="stats">${[[t.coverage_percent + "%", "of the team's core know-how is recorded"], [t.critical_missing, "critical tasks only in someone's head"],
+      [t.holders, "people or roles holding unrecorded know-how"], [t.playbooks, "playbooks recorded"]]
+      .map(([n, l], i) => `<div class="stat ${i === 1 && n ? "alarm" : ""}"><b>${n}</b><span>${l}</span></div>`).join("")}</div>
+    <div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Risk briefing</h2>
+        <span class="row"><button class="btn sm" data-km-listen hidden>Listen</button><button class="btn sm primary" data-km-brief>Brief me with Gemini</button></span></div>
+      <p class="muted small" id="kmBrief" style="margin:8px 0 0">Gemini reads this map and tells you what to record first, and from whom.</p></div>
+    <div class="grid2">
+      <div class="card"><h2>Only in people's heads</h2>
+        <p class="muted small">Know-how nobody has recorded, grouped by who has it today, critical first. If they are away or leave, nobody can teach it. Ask them to record it once.</p>
+        ${m.holders.map(holderHtml).join("") || `<div class="empty">Nothing. Every core task is recorded.</div>`}</div>
+      <div class="card"><h2>Coverage by role</h2>
+        <p class="muted small">Each square is one core task of the role. Tap a square for details.</p>
+        ${m.roles.map((r, ri) => `<div class="km-role"><div class="row" style="justify-content:space-between"><b>${esc(r.role)}</b><span class="small muted">${r.coverage_percent}% recorded</span></div>
+          <div class="bar thin"><div style="width:${r.coverage_percent}%"></div></div>
+          <div class="km-cells">${r.tasks.map((x, ti) => `<button class="cell ${x.status}${x.importance === 3 ? " crit" : ""}" data-km-cell="${ri}:${ti}"
+            title="${esc(x.task)}: ${KM_STATUS[x.status]}" aria-label="${esc(x.task)}, ${IMPORTANCE[x.importance]}, ${KM_STATUS[x.status]}"></button>`).join("")}</div>
+          <div class="km-detail small" id="km-detail-${ri}"></div>
+          <p class="small muted" style="margin:6px 0 0">From the newest of ${plural(r.plans, "plan")} for this role${r.assigned_to ? `, assigned to ${esc(r.assigned_to)}` : ""}.</p></div>`).join("")}
+        <div class="km-legend small muted"><span><i class="recorded"></i>Recorded</span><span><i class="requested"></i>Requested</span>
+          <span><i class="missing"></i>Not recorded</span><span><i class="missing crit"></i>Critical, not recorded</span></div></div>
+    </div>
+    ${m.struggling.length ? `<div class="card"><h2>Recorded, but new hires struggle</h2>
+      <p class="muted small">Playbooks new hires keep getting stuck on since they were last reviewed. The recorder can improve them with Gemini on the Capture page.</p>
+      ${m.struggling.map(g => `<div class="sig-row"><div class="grow"><b>${esc(g.title)}</b>
+        <div class="small muted">${plural(g.questions, "question")} from ${plural(g.people, "new hire")}${g.coach ? `, ${plural(g.coach, "live coach session")}` : ""}</div>
+        ${g.last_note ? `<div class="small quote">“${esc(g.last_note)}”</div>` : ""}</div>
+        <a class="btn sm" href="#capture" data-goto-improve="${esc(g.playbook_id)}">Review</a></div>`).join("")}</div>` : ""}
+    <div class="card"><h2>Who shares know-how</h2>
+      <p class="muted small">A recording keeps teaching after the senior has moved on to other work.</p>
+      ${m.contributors.map(c => `<div class="person"><span class="avatar" aria-hidden="true">${esc((c.name || "?")[0].toUpperCase())}</span>
+        <div class="grow"><b>${esc(c.name)}</b><div class="small muted">${plural(c.playbooks, "playbook")}, used in ${plural(c.plans, "plan")}${c.improved ? `, ${c.improved} improved from new hires' questions` : ""}</div></div>
+        ${c.new_hires ? `<span class="chip good">Helped onboard ${plural(c.new_hires, "new hire")}</span>` : ""}</div>`).join("") || `<div class="empty">No playbooks yet.</div>`}</div>`;
+}
+
+function holderHtml(h, hi) {
+  return `<div class="holder"><div class="row" style="justify-content:space-between"><b>${esc(h.holder)}</b>
+      ${h.critical ? `<span class="chip bad">${h.critical} critical</span>` : ""}</div>
+    <div class="small muted">${plural(h.tasks.length, "task")} only ${h.is_person ? "they" : "this role"} can teach today${h.is_person ? "" : ". Role suggested by Gemini"}</div>
+    ${h.tasks.map((x, ti) => `<div class="htask"><div class="grow"><div>${esc(x.task)}</div>
+        <span class="small muted">${IMPORTANCE[x.importance]}, ${esc(x.role)}, needed by day ${esc(x.needed_by_day)}</span></div>
+      ${x.status === "requested" ? `<span class="chip brand">Requested from ${esc(x.request.expert_email)}</span>`
+        : `${x.status === "declined" ? `<span class="chip warn" title="${esc(x.request?.decline_reason || "")}">Declined by ${esc(x.request?.expert_email)}</span>` : ""}
+           <button class="btn sm" data-km-ask="${hi}:${ti}">Ask to record</button>`}</div>
+      <div id="km-ask-${hi}-${ti}"></div>`).join("")}</div>`;
+}
+
+function kmCell(ri, ti, btn) {
+  const x = state.km.roles[ri].tasks[ti], box = $(`#km-detail-${ri}`);
+  const was = btn.classList.contains("sel");
+  $$(`#kmOut .cell.sel`).forEach(c => c.classList.remove("sel"));
+  $$(`#kmOut .km-detail`).forEach(d => d.innerHTML = "");
+  if (was) return;
+  btn.classList.add("sel");
+  box.innerHTML = `<b>${esc(x.task)}</b> <span class="chip ${x.importance === 3 ? "bad" : ""}">${IMPORTANCE[x.importance]}</span><br>` + (
+    x.status === "recorded" ? `Recorded${x.recorded_by ? ` by ${esc(x.recorded_by)}` : ""} as “${esc(x.playbook_title)}”.`
+    : x.status === "requested" ? `Recording requested from ${esc(x.request.expert_email)}. Needed by day ${esc(x.needed_by_day)}.`
+    : `Only ${esc(x.holder)} can teach it today. Needed by day ${esc(x.needed_by_day)}.${x.status === "declined" ? ` ${esc(x.request?.expert_email)} declined${x.request?.decline_reason ? `: “${esc(x.request.decline_reason)}”` : ""}.` : ""}`);
+}
+
+function kmAskForm(hi, ti) {
+  const h = state.km.holders[hi], x = h.tasks[ti], box = $(`#km-ask-${hi}-${ti}`);
+  if (box.innerHTML) { box.innerHTML = ""; return; }
+  const guess = h.is_person && /@/.test(h.holder) ? h.holder : "";
+  box.innerHTML = `<div class="row" style="margin:8px 0 4px">
+    <input type="text" id="kmEmail-${hi}-${ti}" list="expertList" inputmode="email" placeholder="${esc(h.is_person ? "expert@company.com" : `Email of your ${h.holder}`)}" value="${esc(guess)}" style="flex:1; min-width:200px" aria-label="Expert's email">
+    <button class="btn sm primary" data-km-send="${hi}:${ti}">Send request</button></div>`;
+  $(`#kmEmail-${hi}-${ti}`).focus();
+}
+
+async function kmSend(hi, ti, btn) {
+  const x = state.km.holders[hi].tasks[ti], email = $(`#kmEmail-${hi}-${ti}`).value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast("Enter the expert's email address.", "bad");
+  btn.disabled = true;
+  try {
+    await postJSON("/api/requests", { plan_id: x.plan_id, topic: x.task, expert_email: email });
+    toast(`Asked ${email} to record “${x.task}”. They'll see it under Capture.`, "good", 6000);
+    loadKnowledge(); loadPeople();
+  } catch (e) { toast(e.message, "bad"); btn.disabled = false; }
+}
+
+async function kmBrief(btn) {
+  btn.disabled = true; btn.textContent = "Gemini is reading the map…";
+  try {
+    const r = await call("/api/knowledge/briefing", { method: "POST" });
+    state.kmBrief = r.text;
+    const p = $("#kmBrief"); p.textContent = r.text; p.className = "brief-text";
+    $("[data-km-listen]").hidden = false; btn.textContent = "Brief me again";
+  } catch (e) { toast(e.message, "bad"); btn.textContent = "Brief me with Gemini"; }
+  btn.disabled = false;
 }
 
 // ---------------- 2. plan & gaps ----------------
@@ -694,7 +889,7 @@ $("#planPick").onchange = e => e.target.value && openPlan(e.target.value);
 async function openPlan(id) {
   try {
     const r = await call(`/api/plans/${id}`);
-    Object.assign(state, { plan: r.plan, planId: id, progress: r.plan.progress, titles: r.playbook_titles || {}, openSteps: null, help: null });
+    Object.assign(state, { plan: r.plan, planId: id, progress: r.plan.progress, titles: r.playbook_titles || {}, openSteps: null, help: null, pbCache: {} });
     remember(id); renderLearn();
   } catch (e) { $("#learnOut").innerHTML = `<div class="empty">Couldn't open this plan. ${esc(e.message)}</div>`; }
 }
@@ -738,9 +933,8 @@ async function toggleSteps() {
   const pbId = state.plan.items[state.progress.current].playbook_id;
   try {
     const { playbook: p } = await call(`/api/playbooks/${pbId}`);
-    state.openSteps = `<ol class="timeline" style="margin-top:14px">${p.steps.map(st => `<li><b>${esc(st.title)}</b><div>${esc(st.action)}</div><div class="why">Why: ${esc(st.why)}</div></li>`).join("")}</ol>
-      <div class="lists"><div class="warn"><h3>Watch out for</h3><ul>${p.gotchas.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div>
-      <div class="good"><h3>Done right when</h3><ul>${p.success_criteria.map(g => `<li>${esc(g)}</li>`).join("")}</ul></div></div>`;
+    state.openSteps = `<ol class="timeline" style="margin-top:14px">${p.steps.map(st => `<li><b>${esc(st.title)}</b>${improvedMark(st)}<div>${esc(st.action)}</div><div class="why">Why: ${esc(st.why)}</div></li>`).join("")}</ol>
+      ${lessonsHtml(p)}`;
     renderLearn();
   } catch (e) { toast(e.message, "bad"); }
 }
@@ -771,13 +965,23 @@ function helpPanel(item, i) {
       <button class="btn sm primary" data-hint="${i}">Get a hint</button>
       <button class="btn sm ghost" data-voice="${i}" title="Say what's wrong, in English or Hindi">Ask by voice</button>
       <span class="small muted">English or Hindi</span></div>
+    ${faqHtml(state.pbCache?.[item.playbook_id]?.faq, "Other new hires asked")}
     ${h.message ? `<div class="hint">${h.kind === "hint" ? `<button class="btn sm listen" data-action="listen">Listen</button>` : ""}${h.heard ? `<span class="heard">You asked: “${esc(h.heard)}”</span>` : ""}${esc(h.message)}</div>` : ""}
   </div>`;
 }
 function toggleHelp(i) {
   state.help = state.help?.index === i ? null : { index: i };
   renderLearn();
-  if (state.help) $(`#note-${i}`)?.focus();
+  if (state.help) { $(`#note-${i}`)?.focus(); loadStepFaq(state.plan.items[i].playbook_id, i); }
+}
+// Answers the recorder approved for earlier new hires' questions, shown before they even ask.
+async function loadStepFaq(pbId, i) {
+  state.pbCache ||= {};
+  if (!pbId || state.pbCache[pbId]) return;
+  try {
+    state.pbCache[pbId] = (await call(`/api/playbooks/${pbId}`)).playbook;
+    if (state.help?.index === i && state.pbCache[pbId].faq?.length) { renderLearn(); $(`#note-${i}`)?.focus(); }
+  } catch {}
 }
 // One request: the step becomes the current step and the hint appears inside it.
 async function askHint(i, btn) {
@@ -794,7 +998,7 @@ async function askHint(i, btn) {
 // ---------------- voice: listen, ask by voice, live coach ----------------
 // Listen: a hint read aloud by Gemini text-to-speech (any language the hint is in).
 async function speakText(text, btn) {
-  if (state.audio) { state.audio.pause(); state.audio = null; $$("[data-action=listen]").forEach(b => b.textContent = "Listen"); return; }
+  if (state.audio) { state.audio.pause(); state.audio = null; $$("[data-action=listen], [data-km-listen]").forEach(b => b.textContent = "Listen"); return; }
   if (btn) btn.textContent = "Preparing audio…";
   try {
     const t = await token();
@@ -803,8 +1007,8 @@ async function speakText(text, btn) {
     if (!r.ok) { const b = await r.json().catch(() => ({})); throw new ApiError(friendly(r.status, b.detail), r.status); }
     const url = URL.createObjectURL(await r.blob()), audio = new Audio(url);
     state.audio = audio;
-    audio.onended = () => { state.audio = null; URL.revokeObjectURL(url); $$("[data-action=listen]").forEach(b => b.textContent = "Listen"); };
-    $$("[data-action=listen]").forEach(b => b.textContent = "Stop");
+    audio.onended = () => { state.audio = null; URL.revokeObjectURL(url); $$("[data-action=listen], [data-km-listen]").forEach(b => b.textContent = "Listen"); };
+    $$("[data-action=listen], [data-km-listen]").forEach(b => b.textContent = "Stop");
     await audio.play();
   } catch (e) { state.audio = null; if (btn) btn.textContent = "Listen"; toast(e.message, "bad"); }
 }
@@ -906,10 +1110,14 @@ $$("[data-check]").forEach(b => b.onclick = async () => {
 
 document.addEventListener("input", (e) => {
   if (e.target.id?.startsWith("note-") && state.help) state.help.draft = e.target.value;
+  const se = e.target.dataset?.sugEdit;   // the recorder corrects a suggestion before saving it
+  if (se) { const [id, k, field] = se.split(":"); state.sug[id].suggestions[+k][field] = e.target.innerText.trim(); }
 });
 document.addEventListener("change", (e) => {
   const i = e.target.dataset?.ytPick;
   if (i !== undefined) { state.yt.videos[+i].pick = e.target.checked; renderYouTube(); }
+  const sp = e.target.dataset?.sugPick;
+  if (sp !== undefined) { const [id, k] = sp.split(":"); state.sug[id].picked[+k] = e.target.checked; renderSuggestions(id); }
 });
 
 // ---------------- clicks on dynamic content ----------------
@@ -931,6 +1139,15 @@ document.addEventListener("click", (e) => {
   else if (d.viewPb) viewPlaybook(d.viewPb);
   else if (d.delPb) deletePlaybook(d.delPb, t);
   else if (d.copyGap) copyGap(+d.copyGap);
+  else if (d.improve) openImprove(d.improve, t);
+  else if (d.sugApply) applyImprove(d.sugApply, t);
+  else if (d.sugDismiss) applyImprove(d.sugDismiss, t, true);
+  else if (d.gotoImprove) state.improveTarget = d.gotoImprove;   // the link then opens Capture
+  else if (d.kmCell) kmCell(...d.kmCell.split(":").map(Number), t);
+  else if (d.kmAsk) kmAskForm(...d.kmAsk.split(":").map(Number));
+  else if (d.kmSend) kmSend(...d.kmSend.split(":").map(Number), t);
+  else if (d.kmBrief !== undefined) kmBrief(t);
+  else if (d.kmListen !== undefined) speakText(state.kmBrief, t);
   else if (d.themeSet) {   // tapping the active mode (the only one visible on phones) moves to the next
     const modes = ["auto", "light", "dark"];
     setTheme(t.getAttribute("aria-pressed") === "true" ? modes[(modes.indexOf(d.themeSet) + 1) % 3] : d.themeSet);

@@ -24,6 +24,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     <a href="#home" data-view="home">Overview</a>
     <a href="#capture" data-view="capture" data-roles="manager expert">Capture</a>
     <a href="#plan" data-view="plan" data-roles="manager">Plan &amp; gaps</a>
+    <a href="#knowledge" data-view="knowledge" data-roles="manager">Knowledge</a>
     <a href="#learn" data-view="learn" data-roles="manager newhire" id="navLearn">New hire</a>
   </nav>
   <div class="theme-switch" role="group" aria-label="Appearance">
@@ -100,7 +101,11 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     </div>
     <div class="tile">
       <h3>A plan that bends, not breaks</h3>
-      <p>Stuck? Get a hint from your team's own playbook. Already know it? Skip the whole topic.</p>
+      <p>Stuck? Get a hint or a live voice coach grounded in your team's own playbook. Already know it? Skip the whole topic.</p>
+    </div>
+    <div class="tile">
+      <h3>Playbooks that learn from new hires</h3>
+      <p>Every "I'm stuck" goes back to the playbook. Gemini suggests the missing gotcha or a clearer step, and the senior approves it once.</p>
     </div>
   </div>
 </section>
@@ -113,6 +118,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   </div>
   <div id="reqBox"></div>
   <div id="reqActive"></div>
+  <div id="improveBox"></div>
   <div class="grid2">
     <div class="card">
       <label for="hint">What are you recording? <span class="opt">(optional)</span></label>
@@ -175,6 +181,15 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   <div id="planOut" aria-live="polite"></div>
   <div class="section-head"><h2>Team onboarding</h2><p class="muted small">Every plan you have built: how far each new hire is and where they got stuck. After someone records a missing task, click "Re-check coverage".</p></div>
   <div class="card" id="plansList"><div class="skel line"></div><div class="skel line" style="width:70%"></div></div>
+</section>
+
+<!-- Knowledge map (managers): what's recorded, and what lives only in someone's head -->
+<section id="view-knowledge" class="view" hidden>
+  <div class="page-head">
+    <h1>Team knowledge map</h1>
+    <p>Which of your team's know-how is recorded, and which still lives only in someone's head. If that person is away or leaves, nobody can teach it. Built from your onboarding plans, playbooks and new hires' questions.</p>
+  </div>
+  <div id="kmOut" aria-live="polite"><div class="stats"><div class="skel block" style="height:84px"></div><div class="skel block" style="height:84px"></div><div class="skel block" style="height:84px"></div><div class="skel block" style="height:84px"></div></div></div>
 </section>
 
 <!-- 3. New hire -->
