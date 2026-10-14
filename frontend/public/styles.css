@@ -442,3 +442,20 @@ body.coach-open main { padding-bottom: 280px; }   /* keep the page usable behind
 .person { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-top: .5px solid var(--sep); }
 .person .grow { flex: 1; min-width: 180px; }
 @media (prefers-reduced-motion: reduce) { .sug-panel, .brief-text, .km-detail:not(:empty) { animation: fade .2s ease both; } .sig-row.flash { animation: none; } .cell:active { transform: none; } }
+
+/* ---------- proof of practice ---------- */
+.proof-drop { min-height: 96px; width: 100%; margin: 4px 0; font: inherit; color: var(--ink); gap: 2px; }
+.proof-result { border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: var(--fill); animation: view-in var(--spring-time) var(--spring) both; }
+.proof-result.good { background: var(--good-soft); } .proof-result.warn { background: var(--warn-soft); } .proof-result.bad { background: var(--bad-soft); }
+.proof-result .verdict { display: block; margin-bottom: 4px; }
+.proof-result.good .verdict { color: var(--good); } .proof-result.warn .verdict { color: var(--warn); } .proof-result.bad .verdict { color: var(--bad); }
+.proof-result p { margin: 0 0 6px; }
+.checks { list-style: none; margin: 6px 0 0; padding: 0; }
+.checks li { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-top: .5px solid var(--sep); font-size: .9375rem; }
+.checks .ci { width: 20px; height: 20px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #fff; margin-top: 1px; background: var(--muted); }
+.checks .met .ci { background: var(--good-fill); } .checks .missing .ci { background: var(--warn-fill); }
+.proof-thumb { display: block; max-width: 240px; max-height: 150px; margin-top: 10px; border-radius: 8px; object-fit: cover; object-position: top left; box-shadow: 0 0 0 .5px var(--sep); }
+.proof-busy { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.proof-busy .proof-thumb { margin: 0; max-width: 140px; max-height: 90px; opacity: .7; }
+.spin { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--tint); border-top-color: transparent; vertical-align: -2px; margin-right: 6px; animation: spin .9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .proof-result { animation: fade .2s ease both; } .spin { animation-duration: 2.4s; } }

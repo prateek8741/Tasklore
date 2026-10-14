@@ -69,4 +69,16 @@ def mock_improvements(playbook: dict, questions: list[dict]) -> dict:
 MOCK_BRIEFING = ("(MOCK) Your biggest risk is the Finance lead: two critical tasks live only with them. "
                  "Ask them to record GST filing first, since new hires need it by day 2.")
 
+def mock_proof(playbook: dict | None, first_try: bool) -> dict:
+    """Same shape as schemas.ProofCheck: 'almost' on the first try, 'pass' after, so both paths can be tested."""
+    crits = (playbook or {}).get("success_criteria") or ["The task is done"]
+    return {"verdict": "almost" if first_try else "pass",
+            "criteria": [{"criterion": c, "status": "missing" if first_try and i == len(crits) - 1 else "met",
+                          "evidence": "(MOCK) not visible yet" if first_try and i == len(crits) - 1 else "(MOCK) visible in column F"}
+                         for i, c in enumerate(crits)],
+            "gotchas_seen": [],
+            "feedback": "(MOCK) Good start, the matches look right. Add the last check, then upload again."
+                        if first_try else "(MOCK) That's it, everything on the checklist is there. Well done."}
+
+
 MOCK_HINT ="(MOCK) Start by exporting just one week of data so it is easier to check. Then match on invoice number before amount."

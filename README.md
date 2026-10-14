@@ -6,7 +6,7 @@ AI Builder Cup 2026 · Track: Future of Work & Enterprise Productivity
 
 A senior records their screen while doing a real task and explaining it. Gemini turns the recording into a playbook. A manager describes a new hire's role, and FirstRung builds a day-by-day onboarding plan from the team's playbooks, **flags the knowledge nobody has recorded yet**, and adapts as the new hire works (hints when stuck, skips what they already know).
 
-**What makes it different:** most onboarding tools store what a team already wrote down. FirstRung **measures what is missing** (role coverage, and a team knowledge map of what lives only in someone's head), **gets it recorded** (gap → ask an expert → automatic re-check), and **keeps playbooks improving** from the questions new hires actually ask.
+**What makes it different:** most onboarding tools store what a team already wrote down. FirstRung **measures what is missing** (role coverage, and a team knowledge map of what lives only in someone's head), **gets it recorded** (gap → ask an expert → automatic re-check), and **keeps playbooks improving** from the questions new hires actually ask. Practice is **verified**: a screenshot of the result is checked against the team's own "done right when" list.
 
 Live: https://firstrung-993fd.web.app
 
@@ -40,6 +40,7 @@ The API is the product; the web app is only the first client. Every endpoint exc
 | `POST /api/requests` · `GET /api/requests` · `POST /api/requests/{id}/decline` | Manager asks an expert to record a gap · managers see all requests, experts see theirs · expert declines with a reason and a suggestion. Answering: pass `request_id` to `/api/capture` or `/api/capture/youtube`; the request closes and the plan is re-checked |
 | `GET /api/people` | Known experts and new hires, for the pickers (manager) |
 | `POST /api/session/voice` | Multipart `plan_id`, `item_index`, `file` (WAV): a spoken "I'm stuck" → what was heard + a hint in the same language |
+| `POST /api/session/proof` | Multipart `plan_id`, `item_index`, `file` (PNG/JPEG/WebP screenshot): Gemini checks the result against the playbook's "done right when" list. A pass marks the step done and verified; otherwise the new hire gets what is missing and the one fix that matters. The image is not stored |
 | `POST /api/speak` | `{text}` → WAV audio (Gemini text-to-speech) |
 | `POST /api/coach/start` | `{plan_id, item_index}` → single-use token for a live voice coach session (Gemini Live API) |
 | `GET /api/playbooks` | The team's playbook library, newest first |
@@ -68,6 +69,14 @@ Interactive API docs are at `/docs` on the Cloud Run URL.
 Every "I'm stuck" (typed or spoken) and every live coach session on a plan step is linked to the playbook that step uses. On the Capture page, the recorder (or a manager) sees **"Learn from your new hires"**: which playbooks people struggle with, and the latest question. **Improve with Gemini** reads those questions, the hints they got and whether they then finished the step, and suggests at most five changes: a new gotcha, a clearer step, or an FAQ answer. Each suggestion cites the questions it comes from.
 
 A person stays in charge: they tick what to keep and can correct any text before saving (the hints were AI-written, so the prompt treats facts that aren't in the playbook, such as where a file is kept, as guesses: "Ask the Finance lead where…"). Saving creates a new version; learned gotchas, clarified steps and the FAQ are marked in the playbook. **The next hint and live coach session use the new version immediately**, and new hires see "Other new hires asked" when they open help on that step. Questions are shown to the recorder without names.
+
+### Proof of practice
+
+A "Done" checkbox proves nothing. On every **practice** step that uses a playbook, the new hire can press **Check my work** and paste (⌘/Ctrl V), drop or choose a screenshot of their finished result. Gemini's vision checks it against the playbook's **"done right when"** criteria and returns, for each one, *met*, *missing* or *can't tell from a screenshot* (an email that was sent can't be seen, so that never fails the check), with the evidence it actually sees (the column, cell or value). It also flags known gotchas it can see.
+
+Tested with real Gemini on a half-done reconciliation sheet: it read the formula bar, saw that `XLOOKUP` matched on the **Amount** column instead of the invoice number (the playbook's known gotcha) and that the Status/Reason columns were missing, and said exactly that. The finished sheet passed.
+
+A pass marks the step **done and verified** ("Verified by screenshot" for the new hire, "verified N×" for the manager). A failed check keeps the step open, and what was missing feeds **Learn from your new hires**, so the playbook can say it more clearly next time. Large screenshots are scaled down in the browser before upload; the image is sent to Gemini for the check only and never stored.
 
 ### Team knowledge map
 

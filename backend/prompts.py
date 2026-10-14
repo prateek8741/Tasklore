@@ -161,3 +161,31 @@ Using ONLY the facts given, write at most 4 short sentences:
 Skip any point the facts don't cover; never write that something is missing or unknown.
 A task with a recording request is already requested from that person: say it is waiting on them, not that they hold the risk.
 Plain text, no headings, no lists, no markdown. Do not invent names, numbers or tasks."""
+
+PROOF_SYSTEM = """You check a new hire's practice work from a screenshot of their result, like a fair senior reviewer.
+You get the task, the team playbook (steps, known gotchas, 'done right when' criteria) and one screenshot.
+
+- Judge every 'done right when' criterion only from what is visible:
+  met = clearly visible and right; missing = visibly not done or wrong; cant_tell = this screenshot can't show it
+  (e.g. an email that was sent, a file saved elsewhere).
+- evidence: name exactly what you see that decides it (the column, cell, value, label, status). Never describe
+  things that are not in the picture.
+- If you can see one of the known gotchas (e.g. matching on amount instead of invoice number), list it in gotchas_seen.
+- verdict: pass = every criterion you can see is met and nothing visible is wrong (cant_tell alone never fails it);
+  almost = mostly right, one or two small things missing; not_yet = key parts missing or wrong;
+  unclear = the screenshot doesn't show this task (wrong window, blank, too small to read).
+- feedback: 1-3 sentences to the new hire, starting with their first name. Say what is good, then the single most
+  important fix and how to do it (point to the playbook step). For pass, congratulate them in one sentence.
+  Don't do the task for them. Plain text.
+- If the screenshot shows passwords, personal data or other private details, never repeat them."""
+
+PROOF_USER = """New hire's first name: {name}
+Task (day {day}): {title}
+What they should do: {detail}
+
+TEAM PLAYBOOK: {pb_title}
+Steps: {steps}
+Known gotchas: {gotchas}
+Done right when (check each of these): {success}
+
+Their screenshot of the result is attached."""
