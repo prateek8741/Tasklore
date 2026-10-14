@@ -5,7 +5,9 @@ rules_version = '2';
 // Browsers and apps may never read or write the database directly.
 //
 // Collections (written by the API):
-//   users/{uid}         email, name, last_seen              (from /api/me)
+//   users/{uid}         email, name, roles, active_role     (from /api/me)
+//   invites/{email}     roles granted before first sign-in  (assigning a plan, asking an expert)
+//   requests/{id}       gap, plan, expert, status open/done/declined (recording requests)
 //   playbooks/{id}      title, goal, steps, gotchas, ...    (from /api/capture)
 //   plans/{id}          role, role_tasks, items, gaps, coverage_percent (from /api/plan)
 //                       + progress: status per item, current item, log of done/skip/stuck (from /api/session)

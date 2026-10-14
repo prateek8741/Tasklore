@@ -17,7 +17,7 @@ AUTH_REQUIRED = os.getenv("AUTH_REQUIRED") == "1"
 # Not GOOGLE_CLOUD_PROJECT: gemini.py uses that to switch to Vertex AI.
 PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")
 
-DEV_USER = {"uid": "dev", "email": "dev@localhost", "name": "Local developer"}
+DEV_USER = {"uid": "dev", "email": "dev@example.com", "name": "Local developer"}
 _app = None
 
 
@@ -30,12 +30,15 @@ def _firebase_app():
     return _app
 
 
-def current_user(authorization: str = Header(default="")) -> dict:
-    """FastAPI dependency: returns {uid, email, name} of the signed-in user, or raises 401."""
+def current_user(authorization: str = Header(default=""), x_dev_user: str = Header(default="")) -> dict:
+    """FastAPI dependency: returns {uid, email, name} of the signed-in user, or raises 401.
+    Local dev only (AUTH_REQUIRED off): the X-Dev-User header picks a test user by email."""
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         if AUTH_REQUIRED:
             raise HTTPException(401, "Sign in required", headers={"WWW-Authenticate": "Bearer"})
+        if x_dev_user:
+            return {"uid": "dev-" + x_dev_user.lower(), "email": x_dev_user.lower(), "name": x_dev_user.split("@")[0].title()}
         return DEV_USER
 
     from firebase_admin import auth

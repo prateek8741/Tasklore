@@ -64,6 +64,12 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
       env {
+        # Hackathon demo: everyone holds all roles and switches with "View as". Set "0" for a real team
+        # (then the first person to sign in is the manager, and others get roles through assignments and requests).
+        name  = "DEMO_MODE"
+        value = "1"
+      }
+      env {
         # Every call except /api/health must carry a valid Firebase sign-in token.
         name  = "AUTH_REQUIRED"
         value = "1"

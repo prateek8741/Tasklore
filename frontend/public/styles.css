@@ -366,3 +366,16 @@ html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *
 body.coach-open main { padding-bottom: 280px; }   /* keep the page usable behind the panel */
 @media (prefers-reduced-transparency: reduce) { .coach { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 @media (prefers-reduced-motion: reduce) { .coach { animation: fade .2s ease both; } .coach.speaking .coach-dot, .btn.recording::before { animation: none; } }
+
+/* ---------- roles: "View as" bar, assignment ---------- */
+.rolebar { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; padding: 8px 16px;
+           background: var(--tint-soft); border-bottom: .5px solid var(--sep); }
+.seg { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--fill); }
+.seg button { border: 0; background: transparent; color: var(--ink); font: inherit; font-size: .8125rem; font-weight: 500;
+              padding: 5px 12px; border-radius: 7px; cursor: pointer; transition: background .2s, transform .1s ease-out; }
+.seg button:active { transform: scale(.97); }
+.seg button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); font-weight: 600; }
+.assign { margin: 4px 0 12px; }
+.assign .row { padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.plan-row.leaving { transition: opacity .25s; }
+@media (max-width: 600px) { .rolebar { justify-content: flex-start; } #roleHint { display: none; } }
