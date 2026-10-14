@@ -926,6 +926,8 @@ function renderLearn(message, kind = "") {
       `<div class="pi ${s[i] || ""} ${i === progress.current ? "current" : ""}" id="step-${i}"><span class="st ${s[i] || ""}" aria-label="${s[i] || "to do"}">${ST_ICON[s[i]] || ""}</span>
         <div class="pi-main"><span class="k ${esc(x.kind)}">${esc(x.kind)}</span>${verified.has(i) ? ` <span class="chip good">Verified by screenshot</span>` : ""}
           <div><b>${esc(x.title)}</b></div><div class="small muted">${esc(x.detail)}</div>
+          ${x.kind === "practice" && !x.playbook_id && s[i] !== "done" && s[i] !== "skipped"
+            ? `<div class="small muted no-check">No recorded playbook for this yet, so there's no checklist to check your work against.</div>` : ""}
           ${state.help?.index === i ? helpPanel(x, i) : ""}${state.proof?.index === i ? proofPanel(x, i) : ""}</div>
         ${s[i] === "done" || s[i] === "skipped" ? "" : `<div class="pi-actions">
           ${canProve(x) ? `<button class="btn sm ${state.proof?.index === i ? "" : "ghost"}" data-proof="${i}" aria-expanded="${state.proof?.index === i}">Check my work</button>` : ""}
