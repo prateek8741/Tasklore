@@ -459,3 +459,4 @@ body.coach-open main { padding-bottom: 280px; }   /* keep the page usable behind
 .proof-busy .proof-thumb { margin: 0; max-width: 140px; max-height: 90px; opacity: .7; }
 .spin { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--tint); border-top-color: transparent; vertical-align: -2px; margin-right: 6px; animation: spin .9s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .proof-result { animation: fade .2s ease both; } .spin { animation-duration: 2.4s; } }
+.no-check { margin-top: 6px; font-style: italic; }
