@@ -41,13 +41,13 @@ def mock_plan(role: str, days: int, library: dict) -> dict:
         ],
         "items": [
             {"day": 1, "title": "Get access to Tally and the shared drive", "kind": "setup", "playbook_id": "",
-             "detail": "Ask IT for Tally login and the Finance shared drive."},
+             "detail": "Ask IT for Tally login and the Finance shared drive.", "stuck_example": "Tally says my user has no access to this company"},
             {"day": 1, "title": "Meet the finance lead", "kind": "meet", "playbook_id": "",
-             "detail": "30 minutes on how month-end works and who approves what."},
+             "detail": "30 minutes on how month-end works and who approves what.", "stuck_example": "I don't know what to ask in the first meeting"},
             {"day": 2, "title": "Learn: reconcile vendor invoices", "kind": "learn", "playbook_id": pb_id,
-             "detail": "Watch the recording and read the playbook steps."},
+             "detail": "Watch the recording and read the playbook steps.", "stuck_example": "XLOOKUP shows #N/A for every row"},
             {"day": 3, "title": "Practice: reconcile last month's invoices", "kind": "practice", "playbook_id": pb_id,
-             "detail": "Do it yourself on a copy of last month's data."},
+             "detail": "Do it yourself on a copy of last month's data.", "stuck_example": "My totals don't match the PO sheet"},
         ][: max(days, 1) * 2],
     }
 

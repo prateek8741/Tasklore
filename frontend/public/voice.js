@@ -82,7 +82,7 @@ class PcmPlayer {
 class LiveCoach {
   constructor(ui) { this.ui = ui; }
 
-  start({ token, model }) {
+  start({ token, model, greeting }) {
     this.player = new PcmPlayer();   // created inside the click, so the browser allows it to play
     return new Promise((resolve, reject) => {
       let ready = false;
@@ -92,7 +92,7 @@ class LiveCoach {
         const m = JSON.parse(typeof ev.data === "string" ? ev.data : await ev.data.text());
         if (m.setupComplete) {
           ws.send(JSON.stringify({ clientContent: { turnComplete: true, turns: [{ role: "user", parts: [{
-            text: "(The new hire just opened the coach. Greet them in one short sentence and ask what they are stuck on.)" }] }] } }));
+            text: greeting || "(The new hire just opened the coach. Greet them in one short sentence and ask what they are stuck on.)" }] }] } }));
           try {
             this.mic = new MicCapture(pcm => this._send({ audio: { data: b64FromBytes(new Uint8Array(pcm.buffer)), mimeType: `audio/pcm;rate=${MIC_RATE}` } }));
             await this.mic.start();

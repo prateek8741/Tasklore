@@ -167,6 +167,12 @@ def _make_playbook(video, hint: str, source: dict, user: dict, request_id: str =
     return out
 
 
+def _first_name(user: dict) -> str:
+    """'Prateek Kumar' -> 'Prateek'; falls back to the part of the email before '@'."""
+    name = (user.get("name") or "").strip() or (user.get("email") or "there").split("@")[0].replace(".", " ")
+    return name.split()[0].title() if name else "there"
+
+
 def _who(user: dict) -> dict:
     return {"uid": user["uid"], "email": user.get("email", ""), "name": user.get("name", "")}
 
@@ -535,7 +541,7 @@ def _stuck(plan_id: str, plan: dict, i: int, note: str, user: dict, spoken: bool
         hint = mock_data.MOCK_HINT
     else:
         _, resp = gemini.generate(prompts.STUCK_USER.format(
-            title=item["title"], detail=item["detail"], earlier=_earlier_help(prog, i), note=note or "(no note)",
+            name=_first_name(user), title=item["title"], detail=item["detail"], earlier=_earlier_help(prog, i), note=note or "(no note)",
             **{k: v for k, v in _playbook_context(item).items() if k != "pb_title"}), system=prompts.STUCK_SYSTEM)
         hint = resp.text
     prog["status"][i] = "stuck"
@@ -635,11 +641,14 @@ def coach_start(req: CoachRequest, user: dict = Learner):
     _voice_available()
     plan, item = _plan_item(user, req.plan_id, req.item_index)
     prog = _progress(plan)
-    instruction = prompts.COACH_SYSTEM.format(role=plan["role"], day=item["day"], title=item["title"], detail=item["detail"],
+    name = _first_name(user)
+    instruction = prompts.COACH_SYSTEM.format(name=name, role=plan["role"], day=item["day"], title=item["title"], detail=item["detail"],
                                               earlier=_earlier_help(prog, req.item_index), **_playbook_context(item))
     token = gemini.live_token(instruction)
     entry = {"at": time.time(), "item_index": req.item_index, "outcome": "coach", "note": "", "by": user.get("email", "")}
-    _save_progress(req.plan_id, plan, prog, entry, prog["current"])   # the manager sees that the coach was used
+    _save_progress(req.plan_id, plan, prog, entry, req.item_index)   # this is now their step; the manager sees the coach was used
+    # The first thing the coach hears: it greets them by name and asks where they're stuck in this exact step.
+    token["greeting"] = f'(Session started. Greet {name} by first name and ask where they are stuck in "{item["title"]}".)'
     return token
 
 

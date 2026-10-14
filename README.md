@@ -74,7 +74,9 @@ How people get roles: the first person to sign in becomes a manager; assigning a
 
 ### Voice: listen, ask by voice, live coach
 
-On the new hire's current task:
+Every open step in the new hire's plan has **I'm stuck** and **Live coach** next to it. "I'm stuck" opens a help panel inside that step, with an example problem Gemini wrote for that exact step (e.g. *GitHub says Permission denied (publickey) when I clone*), and asking for help makes it the current step.
+
+For that step:
 
 - **Listen**: any hint is read aloud by Gemini text-to-speech (`gemini-3.8-flash-lite-tts`, falling back to `gemini-3.8-flash-tts`).
 - **Ask by voice**: tap, say what you're stuck on in English, Hindi or Hinglish, tap again. The API checks the recording isn't silent, Gemini writes down what was said (with no task context, so it can't invent a likely question from noise), and the hint comes back in the same language and is read aloud.

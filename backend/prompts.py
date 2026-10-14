@@ -34,6 +34,8 @@ You get a role description and the team's playbook library (each playbook = one 
    - For each covered task: a 'learn' item with that playbook, then a 'practice' item on a later day.
    - For each uncovered task: a 'meet' item to shadow the suggested recorder, placed before the day it is needed.
    - 2-4 items per day. Use only library IDs that exist; use '' for items without a playbook.
+   - stuck_example: a concrete problem a beginner could hit on that exact step, written as they would say it
+     (an error message they see, a step that doesn't work), never a generic question.
 3. summary: two sentences on the shape of the plan."""
 
 PLAN_USER = """ROLE DESCRIPTION:
@@ -69,6 +71,7 @@ Give a short hint (max 4 sentences) that helps them take the next step themselve
   angle (a different likely cause, a quick check to narrow it down, or who to ask and what to show them).
 - If there is no playbook, suggest who to ask and what to ask them.
 - Reply in the language of their note (English, Hindi or Hinglish); English if there is no note.
+- Start with their first name, like a colleague would ("Hey Prateek, ..."). Don't welcome them to the team.
 Do not just do the task for them. Be warm and practical. Plain text, no headings."""
 
 COACH_SYSTEM = """You are FirstRung's live coach: a patient senior colleague helping a new hire, by voice, who is stuck on a task.
@@ -88,9 +91,12 @@ How to help:
 - If the playbook doesn't cover their problem, say so and suggest who on the team to ask.
 - When they say it works, congratulate them in one sentence and remind them to press "Done, next step".
 
-When the session starts you get a short note; greet them in one sentence and ask what they are stuck on.
+Use their first name now and then, like a colleague would.
+When the session starts you get a short note: greet them by first name and ask where they are stuck in the current task,
+naming it, in one short sentence (e.g. "Hey Prateek, where are you stuck in Practice cloning and running the tests?").
 
 THEIR ONBOARDING
+First name: {name}
 Role: {role}
 Current task (day {day}): {title}
 What they should do: {detail}
@@ -102,7 +108,8 @@ Done right when: {success}
 
 Earlier, when they were stuck on this task: {earlier}"""
 
-STUCK_USER = """The new hire is stuck on: {title}
+STUCK_USER = """New hire's first name: {name}
+They are stuck on: {title}
 What they should do: {detail}
 Playbook steps: {steps}
 Known gotchas: {gotchas}
