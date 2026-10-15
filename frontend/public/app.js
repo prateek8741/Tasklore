@@ -110,9 +110,9 @@ function applyRole() {
     $$("[data-role-set]").forEach(b => { b.hidden = !me.roles.includes(b.dataset.roleSet); b.setAttribute("aria-pressed", String(b.dataset.roleSet === role)); });
     $("#roleHint").textContent = `${ROLE_NAME[role]}: ${ROLE_HINT[role]}`;
   }
-  const cta = { manager: [["#capture", "Record a task", 1], ["#plan", "Build a plan"]],
+  const cta = { manager: [["#plan", "Onboard a new hire", 1], ["#capture", "Record a task"]],
                 expert: [["#capture", "See my recording requests", 1]], newhire: [["#learn", "Open my onboarding", 1]] }[role]
-              || [["#capture", "Record a task", 1], ["#plan", "Build a plan"]];
+              || [["#plan", "Onboard a new hire", 1], ["#capture", "Record a task"]];
   $("#heroCta").innerHTML = cta.map(([href, label, primary]) => `<a class="btn ${primary ? "primary" : ""} lg" href="${href}">${label}</a>`).join("");
 }
 
@@ -179,7 +179,7 @@ const skeleton = (lines = 3) => Array.from({ length: lines }, (_, i) => `<div cl
 
 // ---------------- routing ----------------
 const VIEWS = ["home", "capture", "plan", "knowledge", "learn", "system"];
-const ON_ENTER = { home: loadStats, capture: () => { loadLibrary(); loadRequests(); }, plan: () => { loadPlans(); loadPeople(); },
+const ON_ENTER = { home: loadStats, capture: () => { loadLibrary(); loadRequests(); }, plan: () => { renderFlow(); loadPlans(); loadPeople(); },
                    knowledge: () => { loadKnowledge(); loadPeople(); }, learn: loadPlanPicker };
 function route() {
   let v = location.hash.slice(1) || "home";
@@ -546,7 +546,7 @@ function renderKnowledge() {
           <span><i class="missing"></i>Not recorded</span><span><i class="missing crit"></i>Critical, not recorded</span></div></div>
     </div>
     ${m.struggling.length ? `<div class="card"><h2>Recorded, but new hires struggle</h2>
-      <p class="muted small">Playbooks new hires keep getting stuck on since they were last reviewed. The recorder can improve them with Gemini on the Capture page.</p>
+      <p class="muted small">Playbooks new hires keep getting stuck on since they were last reviewed. The recorder can improve them with Gemini on the Library page.</p>
       ${m.struggling.map(g => `<div class="sig-row"><div class="grow"><b>${esc(g.title)}</b>
         <div class="small muted">${plural(g.questions, "question")} from ${plural(g.people, "new hire")}${g.coach ? `, ${plural(g.coach, "live coach session")}` : ""}</div>
         ${g.last_note ? `<div class="small quote">“${esc(g.last_note)}”</div>` : ""}</div>
@@ -599,7 +599,7 @@ async function kmSend(hi, ti, btn) {
   btn.disabled = true;
   try {
     await postJSON("/api/requests", { plan_id: x.plan_id, topic: x.task, expert_email: email });
-    toast(`Asked ${email} to record “${x.task}”. They'll see it under Capture.`, "good", 6000);
+    toast(`Asked ${email} to record “${x.task}”. They'll see it under Library.`, "good", 6000);
     loadKnowledge(); loadPeople();
   } catch (e) { toast(e.message, "bad"); btn.disabled = false; }
 }
@@ -645,7 +645,23 @@ $("#btnPlan").onclick = async (ev) => {
 const KIND_HELP = { setup: "get accounts and tool access", learn: "watch a recorded playbook",
                     practice: "do the task yourself", meet: "sit with a colleague, for what isn't recorded yet" };
 
-function renderPlan(plan, id, requests = []) {
+// The Onboard page walks a manager through three steps. They guide, they don't block: assigning before every gap
+// is filled is fine, the new hire then shadows someone for what isn't recorded.
+const FLOW_TARGET = ["plan-role", "plan-gaps", "plan-assign"];
+function renderFlow() {
+  const p = state.lastPlan, gaps = p?.gaps || [];
+  const handled = gaps.filter(g => gapRequest(g)?.status === "open").length;
+  const done = [!!p, !!p && handled === gaps.length, !!p?.assigned_to];
+  const active = done.indexOf(false);
+  const sub = [p ? `${p.coverage_percent}% already recorded` : "Gemini finds what's missing",
+               !p ? "Add videos or ask an expert" : !gaps.length ? "Nothing missing" : `${gaps.length} missing${handled ? `, ${handled} asked` : ""}`,
+               p?.assigned_to ? `To ${p.assigned_to}` : "Give the plan to the new hire"];
+  $("#flow").innerHTML = ["Describe the role", "Fill the gaps", "Assign it"].map((t, i) => `<li class="${done[i] ? "done" : i === active ? "active" : ""}">
+    <button data-flow="${FLOW_TARGET[i]}" ${!p && i ? "disabled" : ""} ${i === active ? `aria-current="step"` : ""}>
+      <span class="n" aria-hidden="true">${done[i] ? "✓" : i + 1}</span><span><b>${t}</b><span class="small">${esc(sub[i])}</span></span></button></li>`).join("");
+}
+
+function renderPlan(plan, id, requests = [], { scroll = true } = {}) {
   state.planRequests = requests;
   const tasks = plan.role_tasks || [], covered = tasks.filter(t => t.playbook_id).length;
   const total = tasks.reduce((s, t) => s + t.importance, 0), got = tasks.filter(t => t.playbook_id).reduce((s, t) => s + t.importance, 0);
@@ -654,27 +670,30 @@ function renderPlan(plan, id, requests = []) {
   $("#planOut").innerHTML = `
     <div class="card"><div class="cover">${ring(plan.coverage_percent)}
       <div style="flex:1; min-width:240px"><h2>${esc(plan.role)}: ${plan.coverage_percent}% of this job is already recorded</h2>
-        <p class="muted">${covered} of ${tasks.length} core tasks have a playbook your team recorded. The rest are listed under "Missing know-how".</p>
+        <p class="muted">${covered} of ${tasks.length} core tasks have a playbook your team recorded.${plan.gaps.length ? " Fill the rest below before you assign the plan." : ""}</p>
         <details class="how"><summary>How is this % calculated?</summary>
           <p class="small muted">Each core task gets points by importance: Critical 3, Regular 2, Occasional 1. Coverage is the share of points whose task has a playbook.</p>
           <table><thead><tr><th>Core task</th><th>Importance</th><th>Points</th><th>Recorded?</th></tr></thead><tbody>
           ${tasks.map(t => `<tr><td>${esc(t.task)}</td><td>${IMPORTANCE[t.importance] || ""}</td><td>${t.importance}</td><td>${t.playbook_id ? "Yes" : "No"}</td></tr>`).join("")}
           </tbody><tfoot><tr><td colspan="4">${got} recorded points out of ${total} = <b>${plan.coverage_percent}%</b></td></tr></tfoot></table></details>
-        <p class="small muted">Plan summary: ${esc(plan.summary)}</p>
-        ${assignHtml(plan, id)}
-        <a class="btn" href="#learn" data-open-plan="${esc(id)}">Preview as the new hire</a></div></div></div>
-    <div class="grid2">
-      <div class="card"><h2>Core tasks of the role</h2>
-        <p class="muted small">What this job involves, and which parts your team has already recorded. ✓ means a playbook teaches it; ! means nobody has recorded it yet.</p>
-        ${tasks.map(t => `<div class="task"><span class="mark ${t.playbook_id ? "yes" : "no"}" aria-label="${t.playbook_id ? "covered" : "gap"}">${t.playbook_id ? "✓" : "!"}</span>
-          <div style="flex:1"><div>${esc(t.task)}</div><span class="small muted">${t.playbook_id ? "Covered by “" + esc(state.titles[t.playbook_id] || "a playbook") + "”" : "Not recorded yet"}</span></div>
-          <span class="chip ${t.importance === 3 ? "bad" : ""}">${IMPORTANCE[t.importance] || ""}</span></div>`).join("")}</div>
-      <div class="card"><h2>Missing know-how (${plan.gaps.length})</h2>
-        <p class="muted small">Tasks this job needs that nobody has recorded. Click "Ask an expert": they see the request when they sign in, and when they record it, this plan's coverage updates by itself.</p>
-        ${plan.gaps.map((g, i) => `<div class="gap"><b>${esc(g.topic)}</b><div class="small">${esc(g.why_needed)}</div>
-          <div class="foot"><span class="small">Ask <b>${esc(g.suggested_recorder)}</b>, needed by day ${esc(g.needed_by_day)} ${g.importance === 3 ? `<span class="chip bad">Critical</span>` : ""}</span>
-          <span class="row">${gapRequestHtml(g, i)}</span></div><div id="ask-${i}"></div></div>`).join("") || `<div class="empty">No gaps. Your library covers this whole role.</div>`}</div>
-    </div>
+        <p class="small muted">Plan summary: ${esc(plan.summary)}</p></div></div></div>
+    <div class="card" id="plan-gaps"><h2>Fill the gaps (${plan.gaps.length})</h2>
+      <p class="muted small">Tasks this job needs that nobody has recorded. Add a video you already have and the gap is filled in about a minute,
+        or ask the expert who knows it: they see the request when they sign in, and recording it fills the gap.</p>
+      ${plan.gaps.map((g, i) => `<div class="gap"><b>${esc(g.topic)}</b><div class="small">${esc(g.why_needed)}</div>
+        <div class="foot"><span class="small">Best recorded by <b>${esc(g.suggested_recorder)}</b>, needed by day ${esc(g.needed_by_day)} ${g.importance === 3 ? `<span class="chip bad">Critical</span>` : ""}</span>
+        <span class="row">${gapRequestHtml(g, i, id)}</span></div><div id="ask-${i}">${fillStatusHtml(id, g.topic)}</div></div>`).join("")
+        || `<div class="empty">No gaps. Your library covers this whole role.</div>`}</div>
+    <div class="card" id="plan-assign"><h2>Assign it</h2>
+      <p class="muted small">The new hire sees only the plan assigned to them.${plan.gaps.length ? ` Anything still missing becomes a session shadowing a colleague, so you can assign now and fill gaps later.` : ""}</p>
+      ${assignHtml(plan, id)}
+      <a class="btn" href="#learn" data-open-plan="${esc(id)}">Preview as the new hire</a></div>
+    <div class="section-head"><h2>Plan details</h2></div>
+    <div class="card"><h2>Core tasks of the role</h2>
+      <p class="muted small">What this job involves, and which parts your team has already recorded. ✓ means a playbook teaches it; ! means nobody has recorded it yet.</p>
+      ${tasks.map(t => `<div class="task"><span class="mark ${t.playbook_id ? "yes" : "no"}" aria-label="${t.playbook_id ? "covered" : "gap"}">${t.playbook_id ? "✓" : "!"}</span>
+        <div style="flex:1"><div>${esc(t.task)}</div><span class="small muted">${t.playbook_id ? "Covered by “" + esc(state.titles[t.playbook_id] || "a playbook") + "”" : "Not recorded yet"}</span></div>
+        <span class="chip ${t.importance === 3 ? "bad" : ""}">${IMPORTANCE[t.importance] || ""}</span></div>`).join("")}</div>
     <div class="card"><h2>Day-by-day plan</h2>
       <p class="muted small">The new hire's timetable for their first ${days} day${days === 1 ? "" : "s"}.
         ${Object.entries(KIND_HELP).map(([k, v]) => `<span class="k ${k}">${k[0].toUpperCase() + k.slice(1)}</span>: ${v}`).join(". ")}.</p>
@@ -682,7 +701,107 @@ function renderPlan(plan, id, requests = []) {
         <span class="k ${esc(it.kind)}">${esc(it.kind)}</span><div><b>${esc(it.title)}</b></div><div class="small muted">${esc(it.detail)}</div>
         ${it.playbook_id ? `<div class="small" style="margin-top:4px">Playbook: ${esc(state.titles[it.playbook_id] || "recorded task")}</div>` : ""}</div>`).join("")}</div>`).join("")}</div></div>`;
   state.lastPlan = plan; state.lastPlanId = id;
-  $("#planOut").scrollIntoView({ behavior: "smooth" });
+  renderFlow();
+  if (scroll) $("#planOut").scrollIntoView({ behavior: "smooth" });
+}
+
+// ---------------- fill a gap from the plan: upload a video, a YouTube link, or a playbook already in the library ----------------
+// The video becomes a playbook in the library (like the Library page) and is linked straight to this gap.
+// Progress lives in state, keyed by plan and gap, so re-rendering the plan doesn't lose a running upload.
+state.fills = {};
+const fillKey = (planId, topic) => `${planId}|${topic}`;
+const gapIndex = (topic) => (state.lastPlan?.gaps || []).findIndex(g => g.topic === topic);
+
+function fillStatusHtml(planId, topic) {
+  const f = state.fills[fillKey(planId, topic)]; if (!f) return "";
+  if (f.error) return `<p class="field-note">${esc(f.error)}</p>`;
+  const secs = Math.round((Date.now() - f.started) / 1000);
+  const text = f.stage === 0 ? `Uploading ${f.mb} MB, ${Math.round(f.pct * 100)}%`
+             : f.stage === 1 ? `Gemini is watching the video and writing the playbook (${secs} s)` : "Linking the playbook…";
+  return `<div class="fill-status" role="status"><span class="spin" aria-hidden="true"></span><span class="small">${text}</span></div>
+    ${f.stage === 0 ? `<div class="bar thin"><div style="width:${Math.round(f.pct * 100)}%"></div></div>` : ""}`;
+}
+function drawFill(planId, topic) {
+  const i = gapIndex(topic);
+  if (state.lastPlanId === planId && i >= 0) $(`#ask-${i}`).innerHTML = fillStatusHtml(planId, topic);
+}
+
+async function openFill(i) {
+  const box = $(`#ask-${i}`);
+  delete state.fills[fillKey(state.lastPlanId, state.lastPlan.gaps[i].topic)];   // clears a failed try
+  box.innerHTML = `<div class="fill"><div class="row">
+      <button class="btn sm primary" data-fill-file="${i}">Upload a video</button>
+      <input type="text" id="fillYt-${i}" inputmode="url" autocomplete="off" placeholder="or paste a YouTube link" style="flex:1; min-width:180px" aria-label="YouTube link">
+      <button class="btn sm" data-fill-yt="${i}">Add</button></div>
+    <div class="row" id="fillLibRow-${i}" style="margin-top:8px"></div>
+    <p class="small muted" style="margin:6px 0 0">Gemini turns it into a playbook in 15 to 60 seconds, adds it to the library and fills this gap. MP4 or WebM, up to ${MAX_MB} MB.</p></div>`;
+  try {   // a playbook already in the library that the plan's matching missed
+    const { playbooks } = await call("/api/playbooks");
+    if (playbooks.length && $(`#fillLibRow-${i}`)) $(`#fillLibRow-${i}`).innerHTML = `
+      <select id="fillLib-${i}" style="flex:1; min-width:180px" aria-label="Playbook from the library"><option value="">Already in the library? Pick a playbook</option>
+        ${playbooks.map(p => `<option value="${esc(p.id)}">${esc(p.title)}</option>`).join("")}</select>
+      <button class="btn sm" data-fill-link="${i}">Use it</button>`;
+  } catch {}
+}
+
+async function fillRun(i, info, send) {
+  const planId = state.lastPlanId, topic = state.lastPlan.gaps[i].topic, key = fillKey(planId, topic);
+  if (state.fills[key] && !state.fills[key].error) return;
+  const f = state.fills[key] = { stage: 0, pct: 0, started: Date.now(), ...info };
+  const redraw = () => state.lastPlanId === planId && renderPlan(state.lastPlan, planId, state.planRequests, { scroll: false });
+  redraw();   // the gap's buttons give way to the progress line
+  const timer = setInterval(() => f.stage === 1 && drawFill(planId, topic), 1000);
+  try {
+    const r = await send({ plan_id: planId, gap: topic }, f, () => drawFill(planId, topic));
+    delete state.fills[key];
+    const done = r.filled || r;
+    if (state.lastPlanId === planId) {
+      state.titles = done.playbook_titles || state.titles;
+      renderPlan(done.plan, planId, state.planRequests, { scroll: false });
+    }
+    toast(`“${topic}” is filled. Coverage went from ${done.coverage_before}% to ${done.coverage_after}%.`, "good", 8000);
+    loadPlans();
+  } catch (e) { f.error = e.message; redraw(); }
+  clearInterval(timer);
+}
+
+function fillUpload(i, file) {
+  const mb = (file.size / 1048576).toFixed(1);
+  if (!file.type.startsWith("video/") && !/\.(mp4|webm|mov|m4v)$/i.test(file.name)) return toast("Please choose a video file (MP4 or WebM).", "bad");
+  if (file.size > MAX_MB * 1048576) return toast(`This video is ${mb} MB. Keep videos under ${MAX_MB} MB (about 2 to 3 minutes).`, "bad", 7000);
+  fillRun(i, { mb }, (target, f, draw) => {
+    const form = new FormData(); form.append("file", file, file.name);
+    form.append("hint", target.gap); form.append("plan_id", target.plan_id); form.append("gap", target.gap);
+    return upload("/api/capture", form, p => { f.pct = p; if (p >= 1 && f.stage === 0) { f.stage = 1; f.started = Date.now(); } draw(); });
+  });
+}
+
+async function fillYouTube(i, btn) {
+  const url = $(`#fillYt-${i}`).value.trim(); if (!url) return $(`#fillYt-${i}`).focus();
+  btn.disabled = true;
+  try {
+    const { videos } = await postJSON("/api/youtube/resolve", { url, whole_playlist: false });
+    const v = videos[0];
+    if (v.in_library) return fillLink(i, v.in_library);   // imported before: use that playbook, no new Gemini call
+    if (v.problem) throw new Error(`${v.title}: ${v.problem}.`);
+    fillRun(i, { stage: 1 }, (target) => call("/api/capture/youtube", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_id: v.video_id, hint: target.gap, ...target }) }, DIRECT_API));
+  } catch (e) { toast(e.message, "bad"); btn.disabled = false; }
+}
+
+$("#fillFile").onchange = e => {
+  const f = e.target.files[0], i = gapIndex(state.fillTarget);
+  if (f && i >= 0) fillUpload(i, f);
+  e.target.value = "";
+};
+document.addEventListener("keydown", e => {   // Enter in a gap's YouTube box
+  const m = e.key === "Enter" && e.target.id?.match(/^fillYt-(\d+)$/);
+  if (m) fillYouTube(+m[1], $(`[data-fill-yt="${m[1]}"]`));
+});
+
+function fillLink(i, playbookId) {
+  if (!playbookId) return $(`#fillLib-${i}`)?.focus();
+  fillRun(i, { stage: 2 }, (target) => postJSON(`/api/plans/${target.plan_id}/fill`, { gap: target.gap, playbook_id: playbookId }));
 }
 
 function copyGap(i) {
@@ -759,24 +878,28 @@ async function assignPlan(id, email) {
     const r = await postJSON(`/api/plans/${id}/assign`, { email });
     state.lastPlan.assigned_to = r.assigned_to;
     $("#assign-box").outerHTML = assignHtml(state.lastPlan, id);
+    renderFlow();
     toast(r.assigned_to ? `Assigned to ${r.assigned_to}. They'll see it when they sign in.` : "Unassigned.", "good");
     loadPlans(); loadPeople();
   } catch (e) { toast(e.message, "bad"); }
 }
 
-function gapRequestHtml(g, i) {
-  const r = (state.planRequests || []).filter(x => x.topic === g.topic).sort((a, b) => b.created_at - a.created_at)[0];
-  if (r?.status === "open") return `<span class="chip brand">Requested from ${esc(r.expert_email)}</span>`;
+const gapRequest = (g) => (state.planRequests || []).filter(x => x.topic === g.topic).sort((a, b) => b.created_at - a.created_at)[0];
+function gapRequestHtml(g, i, planId) {
+  const f = state.fills[fillKey(planId, g.topic)];
+  if (f && !f.error) return `<span class="chip brand">Adding a video</span>`;
+  const r = gapRequest(g), add = `<button class="btn sm primary" data-fill-gap="${i}">Add a video</button>`;
+  if (r?.status === "open") return `<span class="chip brand">Requested from ${esc(r.expert_email)}</span>${add}`;
   if (r?.status === "done") return `<span class="chip good">Recorded by ${esc(r.expert_email)}</span>`;
   const declined = r?.status === "declined" ? `<span class="chip warn" title="${esc(r.decline_reason || "")}">Declined by ${esc(r.expert_email)}${r.suggested ? `, suggests ${esc(r.suggested)}` : ""}</span>` : "";
-  return `${declined}<button class="btn sm" data-ask-gap="${i}">Ask an expert</button><button class="btn sm ghost" data-copy-gap="${i}">Copy message</button>`;
+  return `${declined}${add}<button class="btn sm" data-ask-gap="${i}">Ask an expert</button><button class="btn sm ghost" data-copy-gap="${i}">Copy message</button>`;
 }
 function openAskForm(i) {
   const g = state.lastPlan.gaps[i], prev = (state.planRequests || []).find(x => x.topic === g.topic && x.status === "declined");
   $(`#ask-${i}`).innerHTML = `<div class="row" style="margin-top:8px">
     <input type="text" id="askEmail-${i}" list="expertList" inputmode="email" placeholder="expert@company.com" value="${esc(prev?.suggested || "")}" style="flex:1; min-width:200px" aria-label="Expert's email">
     <button class="btn sm primary" data-ask-send="${i}">Send request</button></div>
-    <p class="small muted" style="margin:6px 0 0">They'll see it under Capture when they sign in, and recording it updates this plan's coverage automatically.</p>`;
+    <p class="small muted" style="margin:6px 0 0">They'll see it under Library when they sign in, and recording it updates this plan's coverage automatically.</p>`;
   $(`#askEmail-${i}`).focus();
 }
 async function sendAsk(i) {
@@ -801,7 +924,11 @@ async function viewPlan(id) {
 function deletePlan(id, btn) {
   const row = btn.closest(".plan-row"); row.classList.add("leaving"); row.style.opacity = ".4";
   const commit = setTimeout(async () => {
-    try { await call(`/api/plans/${id}`, { method: "DELETE" }); if (state.lastPlanId === id) $("#planOut").innerHTML = ""; loadPlans(); }
+    try {
+      await call(`/api/plans/${id}`, { method: "DELETE" });
+      if (state.lastPlanId === id) { $("#planOut").innerHTML = ""; state.lastPlan = state.lastPlanId = null; renderFlow(); }
+      loadPlans();
+    }
     catch (e) { row.style.opacity = ""; toast(e.message, "bad"); }
   }, 5000);
   toast("Plan deleted.", "info", 5000, { label: "Undo", onClick: () => { clearTimeout(commit); row.style.opacity = ""; } });
@@ -1226,7 +1353,7 @@ document.addEventListener("click", (e) => {
   else if (d.improve) openImprove(d.improve, t);
   else if (d.sugApply) applyImprove(d.sugApply, t);
   else if (d.sugDismiss) applyImprove(d.sugDismiss, t, true);
-  else if (d.gotoImprove) state.improveTarget = d.gotoImprove;   // the link then opens Capture
+  else if (d.gotoImprove) state.improveTarget = d.gotoImprove;   // the link then opens the Library
   else if (d.kmCell) kmCell(...d.kmCell.split(":").map(Number), t);
   else if (d.kmAsk) kmAskForm(...d.kmAsk.split(":").map(Number));
   else if (d.kmSend) kmSend(...d.kmSend.split(":").map(Number), t);
@@ -1242,6 +1369,11 @@ document.addEventListener("click", (e) => {
   else if (d.assign) assignPlan(d.assign, $("#assignEmail").value.trim());
   else if (d.assignMe) assignPlan(d.assignMe, state.me.email);
   else if (d.assignEdit !== undefined) { $("#assign-form").hidden = false; $("#assignEmail").focus(); }
+  else if (d.flow) $(`#${d.flow}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  else if (d.fillGap) openFill(+d.fillGap);
+  else if (d.fillFile) { state.fillTarget = state.lastPlan.gaps[+d.fillFile].topic; $("#fillFile").click(); }
+  else if (d.fillYt) fillYouTube(+d.fillYt, t);
+  else if (d.fillLink) fillLink(+d.fillLink, $(`#fillLib-${d.fillLink}`).value);
   else if (d.askGap) openAskForm(+d.askGap);
   else if (d.askSend) sendAsk(+d.askSend);
   else if (d.viewPlan) viewPlan(d.viewPlan);

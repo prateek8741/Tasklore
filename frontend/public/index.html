@@ -22,8 +22,8 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   </a>
   <nav id="nav" aria-label="Main">
     <a href="#home" data-view="home">Overview</a>
-    <a href="#capture" data-view="capture" data-roles="manager expert">Capture</a>
-    <a href="#plan" data-view="plan" data-roles="manager">Plan &amp; gaps</a>
+    <a href="#plan" data-view="plan" data-roles="manager">Onboard</a>
+    <a href="#capture" data-view="capture" data-roles="manager expert">Library</a>
     <a href="#knowledge" data-view="knowledge" data-roles="manager">Knowledge</a>
     <a href="#learn" data-view="learn" data-roles="manager newhire" id="navLearn">New hire</a>
   </nav>
@@ -74,9 +74,14 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     <h1>Seniors show a task once. New hires get a plan that adapts to them.</h1>
     <p class="lead">Record a task once. Gemini writes the playbook, plans each new hire's first days, and flags what nobody has recorded.</p>
     <div class="row" id="heroCta">
-      <a class="btn primary lg" href="#capture">Record a task</a>
-      <a class="btn lg" href="#plan">Build a plan</a>
+      <a class="btn primary lg" href="#plan">Onboard a new hire</a>
+      <a class="btn lg" href="#capture">Record a task</a>
     </div>
+    <ol class="flow-home" aria-label="Onboard someone in three steps">
+      <li><span class="n">1</span><div><b>Describe the role</b><span>Gemini lists the job's core tasks and checks which ones your playbook library already teaches.</span></div></li>
+      <li><span class="n">2</span><div><b>Fill the gaps</b><span>For each missing task, add a video or ask the expert who knows it to record it.</span></div></li>
+      <li><span class="n">3</span><div><b>Assign it</b><span>The new hire gets a day-by-day plan with hints, a live coach and screenshot checks.</span></div></li>
+    </ol>
   </div>
   <picture>
     <source srcset="img/plan-dark.webp" media="(prefers-color-scheme: dark)" data-dark>
@@ -113,8 +118,8 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 <!-- 1. Capture -->
 <section id="view-capture" class="view" hidden>
   <div class="page-head">
-    <h1>Capture a task</h1>
-    <p>Do a real task on your screen and explain out loud why you do each step. One to three minutes is ideal. English, Hindi or Hinglish all work; the playbook is written in clear English.</p>
+    <h1>Playbook library</h1>
+    <p>Record a real task on your screen and explain out loud why you do each step. One to three minutes is ideal. English, Hindi or Hinglish all work; the playbook is written in clear English. Every new plan is matched against this library automatically.</p>
   </div>
   <div id="reqBox"></div>
   <div id="reqActive"></div>
@@ -159,10 +164,11 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 <!-- 2. Plan & gaps -->
 <section id="view-plan" class="view" hidden>
   <div class="page-head">
-    <h1>Build an onboarding plan</h1>
-    <p>Describe the new hire's role. FirstRung matches it against your playbook library, shows how much of the role is covered, and flags the know-how nobody has recorded yet.</p>
+    <h1>Onboard a new hire</h1>
+    <p>Describe the role. FirstRung matches it against your playbook library, shows how much of the job is already recorded, and lists what's missing so you can fill it before you assign the plan.</p>
   </div>
-  <div class="card">
+  <ol class="flow" id="flow" aria-label="Steps"></ol>
+  <div class="card" id="plan-role">
     <label for="role">The role</label>
     <p class="small muted" id="roleHelp" style="margin:-2px 0 8px">Write 2 or 3 sentences about the job: the main duties and the tools used. The more specific, the better the plan.</p>
     <textarea id="role" aria-describedby="roleHelp roleNote">Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.</textarea>
@@ -238,6 +244,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 </div>
 <div id="toasts" aria-live="polite"></div>
 <input type="file" id="proofFile" accept="image/png,image/jpeg,image/webp,image/heic" hidden>
+<input type="file" id="fillFile" accept="video/*" hidden>
 <datalist id="expertList"></datalist>
 <datalist id="newhireList"></datalist>
 <script src="voice.js"></script>
