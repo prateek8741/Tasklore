@@ -127,7 +127,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   <div class="grid2">
     <div class="card">
       <label for="hint">What are you recording? <span class="opt">(optional)</span></label>
-      <input type="text" id="hint" maxlength="300" placeholder="e.g. Monthly vendor invoice reconciliation, Finance team">
+      <input type="text" id="hint" maxlength="300" placeholder="e.g. Deploy the orders service to staging, Platform team">
       <div id="recIdle" style="margin-top:14px">
         <button class="btn primary lg" id="btnRec">● Start screen recording</button>
         <p class="small muted" style="margin-top:8px">Your browser asks which screen or window to share, and for your microphone. Stop when you're done; the playbook is created automatically.</p>
@@ -171,11 +171,11 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   <div class="card" id="plan-role">
     <label for="role">The role</label>
     <p class="small muted" id="roleHelp" style="margin:-2px 0 8px">Write 2 or 3 sentences about the job: the main duties and the tools used. The more specific, the better the plan.</p>
-    <textarea id="role" aria-describedby="roleHelp roleNote">Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.</textarea>
+    <textarea id="role" aria-describedby="roleHelp roleNote">Data Engineer joining the Platform team. Builds Python ETL pipelines with Airflow, writes tests with pytest, opens pull requests on GitHub and writes SQL for Postgres.</textarea>
     <p class="field-note" id="roleNote" hidden>Describe the role in a sentence or two, so Gemini knows what the job involves.</p>
     <div class="row small" style="margin:8px 0 12px"><span class="muted">Try:</span>
-      <button class="chip" data-role="Accounts Executive joining the Finance team. Handles vendor payments, invoice reconciliation, GST filing support and month-end closing.">Accounts Executive</button>
-      <button class="chip" data-role="Procurement Associate in the Purchase team. Raises purchase orders in Tally, compares vendor quotes, follows up on deliveries and gets approval for orders above ₹50,000.">Procurement Associate</button>
+      <button class="chip" data-role="Data Engineer joining the Platform team. Builds Python ETL pipelines with Airflow, writes tests with pytest, opens pull requests on GitHub and writes SQL for Postgres.">Data Engineer</button>
+      <button class="chip" data-role="Frontend Developer joining the Web team. Builds React and TypeScript screens, writes tests with Vitest, opens pull requests on GitHub and fixes accessibility issues.">Frontend Developer</button>
       <button class="chip" data-role="Customer Support Agent for a SaaS billing product. Handles refund requests, plan changes and escalations in Zendesk.">Customer Support Agent</button>
     </div>
     <div class="row">
@@ -185,7 +185,8 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     </div>
   </div>
   <div id="planOut" aria-live="polite"></div>
-  <div class="section-head"><h2>Team onboarding</h2><p class="muted small">Every plan you have built: how far each new hire is and where they got stuck. After someone records a missing task, click "Re-check coverage".</p></div>
+  <div class="section-head"><h2>Team onboarding</h2><p class="muted small">Every plan you have built: how far each new hire is and where they got stuck. After someone records a missing task, click "Re-check coverage".</p>
+    <button class="btn sm ghost" id="btnResetSample" data-reset-sample hidden style="margin-left:auto">Reset sample team</button></div>
   <div class="card" id="plansList"><div class="skel line"></div><div class="skel line" style="width:70%"></div></div>
 </section>
 
