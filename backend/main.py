@@ -50,7 +50,7 @@ import mock_data
 import prompts
 import youtube
 from schemas import (ApplyImprovements, ProofCheck, AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, Improvements,
-                     PlanDraft, Playbook, PlanRequest, Recheck, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest,
+                     LinkGapRequest, PlanDraft, Playbook, PlanRequest, Recheck, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest,
                      YouTubeCaptureRequest, YouTubeResolveRequest)
 from store import store
 
@@ -137,7 +137,7 @@ def hello():
 # A plain `def` runs in a worker thread, so a 30-60 s Gemini call doesn't block other requests.
 @app.post("/api/capture")
 def capture(file: UploadFile = File(...), hint: str = Form("", max_length=500), request_id: str = Form(""),
-            user: dict = Creator):
+            plan_id: str = Form("", max_length=64), gap: str = Form("", max_length=500), user: dict = Creator):
     data = file.file.read()
     if not data:
         raise HTTPException(400, "The video is empty. Record again and stop the recording before uploading.")
@@ -148,14 +148,19 @@ def capture(file: UploadFile = File(...), hint: str = Form("", max_length=500), 
         raise HTTPException(415, "Please upload a video file (WebM or MP4).")
 
     source = {"type": "upload", "filename": file.filename, "size_mb": round(len(data) / 1048576, 1)}
-    return _make_playbook(lambda: gemini.video_part(data, mime), hint, source, user, request_id)
+    return _make_playbook(lambda: gemini.video_part(data, mime), hint, source, user, request_id, (plan_id, gap))
 
 
-def _make_playbook(video, hint: str, source: dict, user: dict, request_id: str = "") -> dict:
+def _make_playbook(video, hint: str, source: dict, user: dict, request_id: str = "", fill: tuple = ("", "")) -> dict:
     """Gemini watches the video (an upload or a YouTube URL) and the playbook is saved to the library.
-    With request_id, it answers a recording request: the request is closed and its plan re-checked."""
+    With request_id, it answers a recording request: the request is closed and its plan re-checked.
+    With fill = (plan_id, gap topic), it was added from that gap on the plan page, so it fills that gap directly."""
     t = time.time()
     req = _open_request_for(user, request_id) if request_id else None
+    if fill[0]:   # fail before spending a Gemini call
+        if user["role"] != "manager":
+            raise HTTPException(403, "Only managers can fill a plan's gaps. Experts answer recording requests instead.")
+        _open_gap(fill[0], fill[1])
     if gemini.is_mock():
         playbook, model = mock_data.MOCK_PLAYBOOK, "mock"
     else:
@@ -170,6 +175,8 @@ def _make_playbook(video, hint: str, source: dict, user: dict, request_id: str =
         result = _recheck(req["plan_id"]) if store.get("plans", req["plan_id"]) else None
         out["request"] = {"id": request_id, "topic": req["topic"], **({k: result[k] for k in
                           ("coverage_before", "coverage_after", "newly_covered")} if result else {})}
+    if fill[0]:
+        out["filled"] = _fill_gap(fill[0], fill[1], pb_id, user)
     return out
 
 
@@ -228,7 +235,7 @@ def capture_youtube(req: YouTubeCaptureRequest, user: dict = Creator):
     context = f'YouTube video "{v["title"]}" by {v["channel"]}.' + (f" {req.hint}" if req.hint else "")
     source = {"type": "youtube", "video_id": req.video_id, "url": url, "title": v["title"],
               "channel": v["channel"], "duration_s": v["duration_s"]}
-    return _make_playbook(lambda: gemini.youtube_part(url), context, source, user, req.request_id)
+    return _make_playbook(lambda: gemini.youtube_part(url), context, source, user, req.request_id, (req.plan_id, req.gap))
 
 
 def _playbooks_visible_to(member: dict) -> set[str] | None:
@@ -484,6 +491,41 @@ def _recheck(plan_id: str) -> dict:
     return {"id": plan_id, "coverage_before": old_coverage, "coverage_after": plan["coverage_percent"],
             "newly_covered": newly, "gaps": len(plan["gaps"]), "plan": plan,
             "playbook_titles": {pid: p["title"] for pid, p in library.items()}}
+
+
+def _open_gap(plan_id: str, topic: str) -> dict:
+    plan = store.get("plans", plan_id)
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    if not any(t["task"] == topic and not t["playbook_id"] for t in plan["role_tasks"]):
+        raise HTTPException(409, "That gap is already filled on this plan. Refresh the plan to see it.")
+    return plan
+
+
+def _fill_gap(plan_id: str, topic: str, playbook_id: str, user: dict) -> dict:
+    """The manager chose this playbook for this gap, so it is linked directly: no Gemini re-match that could
+    miss it. Coverage and gaps are recomputed; an open recording request for the gap is closed by it."""
+    plan, library = _open_gap(plan_id, topic), store.list("playbooks")
+    old_coverage = plan.get("coverage_percent", 0)
+    for t in plan["role_tasks"]:
+        if t["task"] == topic:
+            t["playbook_id"] = playbook_id
+    plan.update(finish_plan(plan, library))
+    store.put("plans", plan, doc_id=plan_id)
+    for rid, r in store.list("requests").items():
+        if r["plan_id"] == plan_id and r["topic"] == topic and r["status"] == "open":
+            store.put("requests", {**r, "status": "done", "playbook_id": playbook_id, "done_at": time.time(),
+                                   "filled_by": _who(user)}, doc_id=rid)
+    return {"id": plan_id, "topic": topic, "coverage_before": old_coverage, "coverage_after": plan["coverage_percent"],
+            "plan": plan, "playbook_titles": {pid: p["title"] for pid, p in library.items()}}
+
+
+@app.post("/api/plans/{plan_id}/fill")
+def fill_gap(plan_id: str, req: LinkGapRequest, user: dict = Manager):
+    """Fill a gap with a playbook already in the library (one the plan's matching missed)."""
+    if not store.get("playbooks", req.playbook_id):
+        raise HTTPException(404, "Playbook not found")
+    return _fill_gap(plan_id, req.gap, req.playbook_id, user)
 
 
 @app.post("/api/plans/{plan_id}/restart")

@@ -378,7 +378,12 @@ body.coach-open main { padding-bottom: 280px; }   /* keep the page usable behind
 .assign { margin: 4px 0 12px; }
 .assign .row { padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2); }
 .plan-row.leaving { transition: opacity .25s; }
-@media (max-width: 600px) { .rolebar { justify-content: flex-start; } #roleHint { display: none; } }
+@media (max-width: 600px) {   /* one short row on phones: "View as [Manager | Expert | New hire]" */
+  .rolebar { justify-content: flex-start; flex-wrap: nowrap; gap: 8px; padding: 6px 14px; }
+  #roleHint, #roleBarLabel { display: none; }
+  .seg button { padding: 5px 10px; }
+  nav a { padding: 6px 4px; font-size: .8125rem; }   /* all five tabs fit at 360 px, no hidden scroll */
+}
 
 /* ---------- help on each step ---------- */
 .status-list .pi { flex-wrap: wrap; }
@@ -460,3 +465,34 @@ body.coach-open main { padding-bottom: 280px; }   /* keep the page usable behind
 .spin { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--tint); border-top-color: transparent; vertical-align: -2px; margin-right: 6px; animation: spin .9s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .proof-result { animation: fade .2s ease both; } .spin { animation-duration: 2.4s; } }
 .no-check { margin-top: 6px; font-style: italic; }
+
+/* ---------- Onboard flow: describe the role, fill the gaps, assign ---------- */
+.flow { list-style: none; padding: 0; margin: 0 0 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.flow button { width: 100%; height: 100%; display: flex; gap: 10px; align-items: center; text-align: left; border: 0; cursor: pointer;
+               background: var(--surface); color: var(--ink); font: inherit; padding: 10px 12px; border-radius: var(--radius-sm);
+               box-shadow: var(--shadow-sm); transition: transform .1s ease-out, box-shadow .2s; -webkit-tap-highlight-color: transparent; }
+.flow button:active { transform: scale(.98); }
+.flow button:disabled { cursor: default; opacity: .6; transform: none; }
+.flow b { display: block; font-size: .9375rem; letter-spacing: -.01em; }
+.flow .small { display: block; color: var(--muted); }
+.flow .n { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .8125rem;
+           background: var(--fill); color: var(--muted); font-variant-numeric: tabular-nums; }
+.flow li.active button { box-shadow: 0 0 0 2px var(--tint), var(--shadow-sm); }
+.flow li.active .n { background: var(--tint); color: #fff; }
+.flow li.done .n { background: var(--good-fill); color: #fff; }
+@media (max-width: 600px) {   /* phones: three compact tabs, the active step's detail only */
+  .flow { gap: 6px; }
+  .flow button { flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px 10px; }
+  .flow b { font-size: .8125rem; }
+  .flow li:not(.active) .small { display: none; }
+}
+.flow-home { list-style: none; padding: 0; margin: 28px 0 8px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 900px; }
+.flow-home li { display: flex; gap: 12px; align-items: flex-start; }
+.flow-home .n { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--tint); color: #fff; font-weight: 700; font-size: .875rem; }
+.flow-home b { display: block; margin-bottom: 2px; }
+.flow-home span:not(.n) { color: var(--muted); font-size: .875rem; line-height: 1.4; }
+@media (max-width: 760px) { .flow-home { grid-template-columns: 1fr; gap: 14px; margin-top: 22px; } }
+.fill { margin-top: 10px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--warn) 22%, transparent); }
+.fill select { padding: 8px 11px; font-size: .875rem; }
+.fill input[type=text] { padding: 8px 11px; font-size: .875rem; }
+.fill-status { display: flex; align-items: center; margin: 10px 0 6px; }

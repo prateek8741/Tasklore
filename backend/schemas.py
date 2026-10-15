@@ -55,6 +55,8 @@ class YouTubeCaptureRequest(BaseModel):
     video_id: str = Field(pattern=r"^[A-Za-z0-9_-]{11}$")
     hint: str = Field(default="", max_length=300)
     request_id: str = Field(default="", max_length=64)  # answering a recording request
+    plan_id: str = Field(default="", max_length=64)     # with gap: this video fills that gap on that plan
+    gap: str = Field(default="", max_length=500)
 
 
 # ---------- Plan: a role description becomes an onboarding plan + gap report ----------
@@ -175,6 +177,11 @@ class RoleSwitch(BaseModel):
 
 class AssignRequest(BaseModel):
     email: str = Field(default="", max_length=200, pattern=r"^$|" + EMAIL)  # empty = unassign
+
+
+class LinkGapRequest(BaseModel):
+    gap: str = Field(max_length=500)
+    playbook_id: str = Field(max_length=64)
 
 
 class AskExpertRequest(BaseModel):
