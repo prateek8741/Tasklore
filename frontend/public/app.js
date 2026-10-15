@@ -101,6 +101,7 @@ async function refreshMe() {
 
 function applyRole() {
   const me = state.me || {}, role = me.role;
+  $("#btnResetSample").hidden = !me.demo || role !== "manager";
   $$("#nav a[data-roles]").forEach(a => a.hidden = !role || !a.dataset.roles.split(" ").includes(role));
   $("#navLearn").textContent = role === "newhire" ? "My onboarding" : "New hire";
   const showBar = !!role && (me.demo || (me.roles || []).length > 1);
@@ -368,6 +369,7 @@ async function importYouTube() {
 function playbookCard(p, id, { preview, footer, closable } = {}) {
   const yt = p.source?.type === "youtube" ? p.source : null;
   const by = yt ? `From YouTube: <a href="${esc(yt.url)}" target="_blank" rel="noopener">${esc(yt.title)}</a> by ${esc(yt.channel)}. Imported by ${esc(p.created_by?.name || "a teammate")}`
+           : p.source?.type === "sample" ? `Sample playbook by ${esc(p.created_by?.name || "the sample team")}, written for the demo (no video)`
            : p.created_by?.name ? `Recorded by ${esc(p.created_by.name)}` : "";
   const tsHtml = (s) => yt ? `<a class="ts" href="${esc(yt.url)}&t=${secsOf(s.timestamp)}s" target="_blank" rel="noopener" title="Open this moment on YouTube">${esc(s.timestamp)}</a>`
            : preview ? `<button class="ts" data-seek="${esc(s.timestamp)}" title="Jump to this moment">${esc(s.timestamp)}</button>` : `<span class="ts">${esc(s.timestamp)}</span>`;
@@ -412,7 +414,7 @@ async function loadLibrary() {
         ${p.source?.type === "youtube" ? `<span class="small muted">From YouTube, ${esc(p.source.channel)}</span>`
           : p.created_by?.name ? `<span class="small muted">by ${esc(p.created_by.name)}</span>` : ""}
         <div class="actions"><button class="btn sm" data-view-pb="${esc(p.id)}">View</button>
-          <button class="btn sm ghost" data-del-pb="${esc(p.id)}" aria-label="Delete ${esc(p.title)}">Delete</button></div></div>`).join("")
+          ${p.sample ? `<span class="chip">Sample</span>` : `<button class="btn sm ghost" data-del-pb="${esc(p.id)}" aria-label="Delete ${esc(p.title)}">Delete</button>`}</div></div>`).join("")
       : `<div class="empty" style="grid-column:1/-1">No playbooks yet. Record the first task above; it takes about two minutes.</div>`;
   } catch (e) { $("#library").innerHTML = `<div class="empty" style="grid-column:1/-1">Couldn't load the library. ${esc(e.message)}</div>`; }
 }
@@ -829,6 +831,22 @@ function restartPlan(id, btn) {
         { label: "Undo", onClick: () => { clearTimeout(commit); btn.disabled = false; } });
 }
 
+// Demo mode: put back the sample team. Undo instead of a dialog; the reset is sent only after 5 s.
+function resetSample(btn) {
+  btn.disabled = true;
+  const commit = setTimeout(async () => {
+    try {
+      await call("/api/demo/reset", { method: "POST" });
+      Object.assign(state, { lastPlan: null, lastPlanId: null, plan: null, planId: null, fills: {} });
+      $("#planOut").innerHTML = ""; renderFlow(); loadPlans();
+      toast("The sample team is back: John's Python Developer plan and 3 playbooks.", "good", 6000);
+    } catch (e) { toast(e.message, "bad"); }
+    btn.disabled = false;
+  }, 5000);
+  toast("Resetting: every plan, playbook and request is replaced by the sample team.", "info", 5000,
+        { label: "Undo", onClick: () => { clearTimeout(commit); btn.disabled = false; } });
+}
+
 // Plans are snapshots of the library when they were built. Re-checking matches the plan's core tasks
 // against today's library, so a gap someone has since recorded now counts as covered.
 async function recheckPlan(id, btn) {
@@ -854,7 +872,7 @@ async function loadPlans() {
           ${p.progress.stuck_events ? ` <span class="chip warn">stuck ${p.progress.stuck_events}×</span>` : ""}${p.progress.coach_sessions ? ` <span class="chip brand">live coach ${p.progress.coach_sessions}×</span>` : ""}${p.progress.verified ? ` <span class="chip good">verified ${p.progress.verified}×</span>` : ""}</div></div>
         <div class="row">${p.gaps ? `<button class="btn sm ghost" data-recheck="${esc(p.id)}" title="Match this plan against the playbooks recorded since">Re-check coverage</button>` : ""}
           ${p.progress.updated_at ? `<button class="btn sm ghost" data-restart="${esc(p.id)}" title="Clear this plan's progress and start again">Restart</button>` : ""}
-          <button class="btn sm ghost" data-delete-plan="${esc(p.id)}">Delete</button>
+          ${p.sample ? `<span class="chip">Sample</span>` : `<button class="btn sm ghost" data-delete-plan="${esc(p.id)}">Delete</button>`}
           <button class="btn sm" data-view-plan="${esc(p.id)}">View</button></div></div>`).join("")
       : `<div class="empty">No onboarding plans yet. Describe a role above to create the first one.</div>`;
   } catch (e) { $("#plansList").innerHTML = `<div class="empty">Couldn't load plans. ${esc(e.message)}</div>`; }
@@ -1363,6 +1381,7 @@ document.addEventListener("click", (e) => {
     const modes = ["auto", "light", "dark"];
     setTheme(t.getAttribute("aria-pressed") === "true" ? modes[(modes.indexOf(d.themeSet) + 1) % 3] : d.themeSet);
   }
+  else if (d.resetSample !== undefined) resetSample(t);
   else if (d.recheck) recheckPlan(d.recheck, t);
   else if (d.restart) restartPlan(d.restart, t);
   else if (d.roleSet) setRole(d.roleSet);

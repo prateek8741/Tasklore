@@ -48,6 +48,7 @@ import gemini
 import insights
 import mock_data
 import prompts
+import sample_data
 import youtube
 from schemas import (ApplyImprovements, ProofCheck, AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, Improvements,
                      LinkGapRequest, PlanDraft, Playbook, PlanRequest, Recheck, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest,
@@ -280,7 +281,7 @@ def _editable_playbook(member: dict, playbook_id: str, verb: str) -> dict:
 
 @app.delete("/api/playbooks/{playbook_id}")
 def delete_playbook(playbook_id: str, member: dict = Creator):
-    _editable_playbook(member, playbook_id, "delete")
+    _not_sample(_editable_playbook(member, playbook_id, "delete"))
     store.delete("playbooks", playbook_id)
     return {"deleted": playbook_id}
 
@@ -455,7 +456,7 @@ def list_plans(member: dict = Learner):
     """Managers: every onboarding plan with its progress, newest first. New hires: only plans assigned to them."""
     out = [{"id": pid, "role": p["role"], "coverage_percent": p.get("coverage_percent"),
             "created_at": p.get("created_at"), "created_by": p.get("created_by"), "assigned_to": p.get("assigned_to"),
-            "gaps": len(p.get("gaps", [])), "progress": _summary(_progress(p))}
+            "gaps": len(p.get("gaps", [])), "progress": _summary(_progress(p)), "sample": bool(p.get("sample"))}
            for pid, p in store.list("plans").items() if access.can_see_plan(member, p)]
     out.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
     return {"plans": out}
@@ -554,7 +555,7 @@ def get_plan(plan_id: str, member: dict = Learner):
 
 @app.delete("/api/plans/{plan_id}", dependencies=[Manager])
 def delete_plan(plan_id: str):
-    if not store.get("plans", plan_id):
+    if not _not_sample(store.get("plans", plan_id)):
         raise HTTPException(404, "Plan not found")
     store.delete("plans", plan_id)
     for rid, r in store.list("requests").items():   # its open recording requests go too
@@ -846,6 +847,46 @@ def coach_start(req: CoachRequest, user: dict = Learner):
 # ---------------- knowledge map: what's recorded, and what lives only in someone's head ----------------
 def _knowledge() -> dict:
     return insights.knowledge_map(store.list("plans"), store.list("playbooks"), store.list("requests"))
+
+
+# ---------------- sample team (demo mode) ----------------
+# Judges share one workspace, so it starts with a ready-made team instead of an empty app, and a manager can put
+# it back. Sample items can't be deleted (one judge would break the demo for the next); the reset restores the rest.
+SAMPLE_COLLECTIONS = ("playbooks", "plans", "requests")
+
+
+def _not_sample(doc: dict | None) -> dict | None:
+    if doc and doc.get("sample"):
+        raise HTTPException(403, "This is part of the sample team, so it can't be deleted. Use Reset sample team to start over.")
+    return doc
+
+
+def seed_sample_team() -> dict:
+    """Replace every playbook, plan and recording request with the sample team. No Gemini calls."""
+    for c in SAMPLE_COLLECTIONS:
+        for doc_id in store.list(c):
+            store.delete(c, doc_id)
+    data = sample_data.build(time.time())
+    for pid, plan in data["plans"].items():
+        plan.update(finish_plan(plan, data["playbooks"]))
+    for c in SAMPLE_COLLECTIONS:
+        for doc_id, doc in data[c].items():
+            store.put(c, doc, doc_id=doc_id)
+    return {c: len(data[c]) for c in SAMPLE_COLLECTIONS}
+
+
+@app.post("/api/demo/reset", dependencies=[Manager])
+def reset_demo():
+    if not access.DEMO_MODE:
+        raise HTTPException(403, "Resetting to the sample team only works in demo mode.")
+    return {"reset": seed_sample_team()}
+
+
+@app.on_event("startup")
+def seed_if_empty():
+    """A brand-new demo workspace (or a local run) opens with the sample team instead of an empty app."""
+    if access.DEMO_MODE and not store.list("playbooks") and not store.list("plans"):
+        logging.info("Empty workspace: loading the sample team %s", seed_sample_team())
 
 
 @app.get("/api/knowledge", dependencies=[Manager])
