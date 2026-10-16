@@ -120,6 +120,7 @@ function applyRole() {
   $("#heroCta").innerHTML = cta.map(([href, label, primary]) => `<a class="btn ${primary ? "primary" : ""} lg" href="${href}">${label}</a>`).join("");
 }
 
+
 async function setRole(role) {
   try {
     state.me = { ...state.me, ...(await postJSON("/api/me/role", { role })) };

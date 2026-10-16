@@ -3,9 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tasklore · onboarding your seniors record once</title>
+<title>Tasklore · seniors show it once</title>
 <meta name="description" content="Seniors show a task once. New hires get an onboarding plan that adapts to them. Built with Gemini on Google Cloud.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23007aff'/%3E%3Cpath d='M10 6v20M22 6v20M10 11h12M10 16h12' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M10 21h12' stroke='%23fbbf24' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f6bd8'/%3E%3Cpath d='M11 7v18M21 7v18' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M11 11.5h10M11 20.5h10' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3Cpath d='M11 16h10' stroke='%23fbbf24' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@1,6..72,400&display=swap">
 <script>/* apply the saved appearance before the page draws, so there is no flash */
 try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="stylesheet" href="styles.css">
@@ -13,11 +16,12 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 </head>
 <body>
 
-<header class="topbar">
+<header class="masthead">
+<div class="topbar">
   <a class="brand" href="#home" aria-label="Tasklore home">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--tint)"/>
-      <path d="M10 6v20M22 6v20M10 11h12M10 16h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M10 21h12" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#2f6bd8"/>
+      <path d="M11 7v18M21 7v18" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/><path d="M11 11.5h10M11 20.5h10" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M11 16h10" stroke="#fbbf24" stroke-width="2.6" stroke-linecap="round"/></svg>
     Tasklore
   </a>
   <nav id="nav" aria-label="Main">
@@ -33,6 +37,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     <button data-theme-set="dark" aria-pressed="false">Dark</button>
   </div>
   <div id="authBox" class="auth"><span class="skel line" style="width:110px;margin:0"></span></div>
+</div>
 </header>
 <!-- "View as": shown in demo mode (everyone holds every role) or to people who hold several roles -->
 <div id="roleBar" class="rolebar" hidden>
@@ -50,9 +55,9 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 <!-- Sign-in gate (shown for every page except Home when signed out) -->
 <section id="view-signin" class="view" hidden>
   <div class="card signin">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--tint)"/>
-      <path d="M10 6v20M22 6v20M10 11h12M10 16h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M10 21h12" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#2f6bd8"/>
+      <path d="M11 7v18M21 7v18" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/><path d="M11 11.5h10M11 20.5h10" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M11 16h10" stroke="#fbbf24" stroke-width="2.6" stroke-linecap="round"/></svg>
     <h1>Sign in to your team's Tasklore</h1>
     <p class="muted">Playbooks and onboarding plans are private to your team. Sign in with your Google account to continue.</p>
     <button class="btn primary lg" data-action="sign-in">Sign in with Google</button>
@@ -70,8 +75,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 
 <section id="view-home" class="view">
   <div class="hero">
-    <p class="eyebrow">Onboarding that learns from your seniors</p>
-    <h1>Seniors show a task once. New hires get a plan that adapts to them.</h1>
+    <h1>Seniors show it once.<br><em>Tasklore finds what nobody has shown yet.</em></h1>
     <p class="lead">Record a task once. Gemini writes the playbook, plans each new hire's first days, and flags what nobody has recorded.</p>
     <div class="row" id="heroCta">
       <a class="btn primary lg" href="#plan">Onboard a new hire</a>
@@ -83,22 +87,30 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
       <li><span class="n">3</span><div><b>Assign it</b><span>The new hire gets a day-by-day plan with hints, a live coach and screenshot checks.</span></div></li>
     </ol>
   </div>
-  <picture>
-    <source srcset="img/plan-dark.webp" media="(prefers-color-scheme: dark)" data-dark>
-    <img class="shot hero-shot" src="img/plan-light.webp" width="1002" height="820"
-         alt="Tasklore plan for an Accounts Executive: 38% of the role's know-how is recorded, with the missing tasks and who should record them">
-  </picture>
+  <!-- product preview drawn with the app's own components (example data), so it always matches the live UI -->
+  <section class="preview" aria-label="Example of a team knowledge map">
+    <div class="preview-head"><h2>Team knowledge map</h2><span class="small muted"><i>Example</i> · 58% recorded</span></div>
+    <div class="preview-row"><b>Data Engineer</b><div class="km-cells"><span class="cell recorded"></span><span class="cell recorded"></span><span class="cell requested"></span><span class="cell missing crit"></span><span class="cell missing"></span><span class="cell recorded"></span><span class="cell missing crit"></span></div></div>
+    <div class="preview-row"><b>Frontend Developer</b><div class="km-cells"><span class="cell recorded"></span><span class="cell recorded"></span><span class="cell recorded"></span><span class="cell missing"></span><span class="cell requested"></span></div></div>
+    <div class="preview-row"><b>Support Agent</b><div class="km-cells"><span class="cell recorded"></span><span class="cell missing crit"></span><span class="cell recorded"></span><span class="cell recorded"></span></div></div>
+    <div class="preview-row"><b>Accounts Executive</b><div class="km-cells"><span class="cell recorded"></span><span class="cell missing"></span><span class="cell missing crit"></span><span class="cell requested"></span><span class="cell missing"></span><span class="cell recorded"></span></div></div>
+    <div class="km-legend small muted"><span><i class="recorded"></i>Recorded</span><span><i class="requested"></i>Requested</span>
+      <span><i class="missing"></i>Not recorded</span><span><i class="missing crit"></i>Critical, not recorded</span></div>
+  </section>
   <div class="stats" id="stats" hidden aria-live="polite"></div>
   <div class="section-head"><h2>How it works</h2></div>
   <div class="bento">
     <div class="tile big">
       <h3>One recording becomes a playbook</h3>
       <p>A senior does the task and talks it through, in English or Hindi. Gemini writes the steps, the reasons, the gotchas and the checks.</p>
-      <picture>
-        <source srcset="img/playbook-dark.webp" media="(prefers-color-scheme: dark)" data-dark>
-        <img class="shot" src="img/playbook-light.webp" width="1002" height="491" loading="lazy"
-             alt="A playbook generated from a screen recording: numbered steps with timestamps and the reason behind each step">
-      </picture>
+      <div class="preview-pb" aria-label="Example playbook steps">
+        <span class="k learn">Example · Deploy to staging</span>
+        <ol class="timeline">
+          <li><b>Open the release branch in GitHub Actions</b><span class="ts">0:12</span><div class="why">Staging deploys only run from release branches.</div></li>
+          <li><b>Run the “deploy-staging” workflow</b><span class="ts">0:41</span><div class="why">It migrates the database before it swaps traffic.</div></li>
+          <li><b>Check the health page turns green</b><span class="ts">1:58</span><div class="why">A red check means the migration is still running. Wait, don’t re-run.</div></li>
+        </ol>
+      </div>
     </div>
     <div class="tile">
       <h3>See what nobody has recorded</h3>
