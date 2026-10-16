@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FirstRung · onboarding your seniors record once</title>
+<title>Tasklore · onboarding your seniors record once</title>
 <meta name="description" content="Seniors show a task once. New hires get an onboarding plan that adapts to them. Built with Gemini on Google Cloud.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23007aff'/%3E%3Cpath d='M10 6v20M22 6v20M10 11h12M10 16h12' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M10 21h12' stroke='%23fbbf24' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <script>/* apply the saved appearance before the page draws, so there is no flash */
@@ -14,11 +14,11 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 <body>
 
 <header class="topbar">
-  <a class="brand" href="#home" aria-label="FirstRung home">
+  <a class="brand" href="#home" aria-label="Tasklore home">
     <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--tint)"/>
       <path d="M10 6v20M22 6v20M10 11h12M10 16h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
       <path d="M10 21h12" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
-    FirstRung
+    Tasklore
   </a>
   <nav id="nav" aria-label="Main">
     <a href="#home" data-view="home">Overview</a>
@@ -53,7 +53,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--tint)"/>
       <path d="M10 6v20M22 6v20M10 11h12M10 16h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
       <path d="M10 21h12" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
-    <h1>Sign in to your team's FirstRung</h1>
+    <h1>Sign in to your team's Tasklore</h1>
     <p class="muted">Playbooks and onboarding plans are private to your team. Sign in with your Google account to continue.</p>
     <button class="btn primary lg" data-action="sign-in">Sign in with Google</button>
   </div>
@@ -86,7 +86,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   <picture>
     <source srcset="img/plan-dark.webp" media="(prefers-color-scheme: dark)" data-dark>
     <img class="shot hero-shot" src="img/plan-light.webp" width="1002" height="820"
-         alt="FirstRung plan for an Accounts Executive: 38% of the role's know-how is recorded, with the missing tasks and who should record them">
+         alt="Tasklore plan for an Accounts Executive: 38% of the role's know-how is recorded, with the missing tasks and who should record them">
   </picture>
   <div class="stats" id="stats" hidden aria-live="polite"></div>
   <div class="section-head"><h2>How it works</h2></div>
@@ -102,7 +102,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     </div>
     <div class="tile">
       <h3>See what nobody has recorded</h3>
-      <p>Describe a role. FirstRung measures how much of it your library covers and names who should record each gap.</p>
+      <p>Describe a role. Tasklore measures how much of it your library covers and names who should record each gap.</p>
     </div>
     <div class="tile">
       <h3>A plan that bends, not breaks</h3>
@@ -165,7 +165,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 <section id="view-plan" class="view" hidden>
   <div class="page-head">
     <h1>Onboard a new hire</h1>
-    <p>Describe the role. FirstRung matches it against your playbook library, shows how much of the job is already recorded, and lists what's missing so you can fill it before you assign the plan.</p>
+    <p>Describe the role. Tasklore matches it against your playbook library, shows how much of the job is already recorded, and lists what's missing so you can fill it before you assign the plan.</p>
   </div>
   <ol class="flow" id="flow" aria-label="Steps"></ol>
   <div class="card" id="plan-role">
@@ -228,6 +228,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 <footer>
   <span>Built with Gemini, Cloud Run, Firebase and Firestore</span>
   <a href="#system">System check</a>
+  <a href="privacy.html">Privacy</a>
   <a href="https://github.com/prateek8741/firstrung" target="_blank" rel="noopener">Source on GitHub</a>
 </footer>
 <div id="coachDock" class="coach" hidden role="dialog" aria-label="Live coach">

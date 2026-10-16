@@ -1,22 +1,37 @@
 {
-  "hosting": {
-    "public": "frontend/public",
-    "ignore": ["firebase.json", "**/.*"],
-    "headers": [
-      {
-        "source": "**/*.@(html|js|css)",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      },
-      {
-        "source": "/",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
-      }
-    ],
-    "rewrites": [
-      {
-        "source": "/api/**",
-        "run": { "serviceId": "firstrung-api", "region": "asia-south1" }
-      }
-    ]
-  }
+  "hosting": [
+    {
+      "site": "tasklore",
+      "public": "frontend/public",
+      "ignore": ["firebase.json", "**/.*"],
+      "headers": [
+        {
+          "source": "**/*.@(html|js|css)",
+          "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+        },
+        {
+          "source": "/",
+          "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+        }
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": { "serviceId": "firstrung-api", "region": "asia-south1" }
+        }
+      ]
+    },
+    {
+      "site": "firstrung-993fd",
+      "public": "frontend/public",
+      "ignore": ["firebase.json", "**/.*"],
+      "redirects": [
+        {
+          "source": "/:path*",
+          "destination": "https://tasklore.web.app/:path*",
+          "type": 302
+        }
+      ]
+    }
+  ]
 }

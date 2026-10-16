@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · Tasklore</title>
+<meta name="description" content="What Tasklore collects, what it doesn't keep, and who processes it.">
+<script>try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .policy { max-width: 720px; }
+  .policy h2 { margin-top: 4px; }
+  .policy ul { margin: 0 0 .65em; padding-left: 20px; }
+  .policy li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="Tasklore home">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--tint)"/>
+      <path d="M10 6v20M22 6v20M10 11h12M10 16h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M10 21h12" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
+    Tasklore
+  </a>
+</header>
+<main class="policy">
+  <h1>Privacy</h1>
+  <p class="muted">Tasklore is a prototype built for the Google Cloud AI Builder Cup 2026. Last updated 16 October 2026.</p>
+
+  <div class="card"><h2>The public demo is shared</h2>
+    <p>Everyone who signs in to the demo works in the same sample workspace and can see what others add there.
+      Please don't enter real company information or anyone's personal details.</p></div>
+
+  <div class="card"><h2>What Tasklore stores</h2>
+    <ul>
+      <li>From Google sign-in: your name, email address and account ID, to know who you are and which role you act in.</li>
+      <li>What you create: playbooks written from recordings, onboarding plans and progress, the notes you type or say
+        when stuck (spoken questions are kept as text), recording requests, and a record of what the gap-closing agent did.</li>
+    </ul></div>
+
+  <div class="card"><h2>What it doesn't keep</h2>
+    <ul>
+      <li>The videos you record or upload. Gemini reads them to write the playbook; Tasklore keeps only the playbook.</li>
+      <li>Screenshots sent to "Check my work". Only the result of the check is saved.</li>
+      <li>The audio of spoken questions, and anything you show the live coach. The coach session runs between your browser and Gemini.</li>
+    </ul></div>
+
+  <div class="card"><h2>Who processes it</h2>
+    <ul>
+      <li>Google Cloud: Cloud Run and Firestore in Mumbai (asia-south1), Firebase Authentication and Firebase Hosting.</li>
+      <li>Google's Gemini API reads recordings, screenshots, audio and text to write playbooks, plans and hints, under the
+        <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener">Gemini API terms</a>.
+        Videos over 15 MB go through Gemini's file storage, which deletes them after 48 hours.</li>
+      <li>The gap-closing agent never sees email addresses: people and tasks reach it only as labels.</li>
+    </ul>
+    <p>No ads and no analytics trackers. Google Cloud keeps its standard request logs (such as IP address and time) for
+      running the service. Nothing is sold or shared with anyone else.</p></div>
+
+  <div class="card"><h2>Deleting your data, and questions</h2>
+    <p>Write to <a href="mailto:prateek50999.pk@gmail.com">prateek50999.pk@gmail.com</a> and your account data will be deleted.
+      Playbooks you recorded can also be deleted on the Library page.</p></div>
+</main>
+<footer><a href="/">Back to Tasklore</a></footer>
+</body>
+</html>

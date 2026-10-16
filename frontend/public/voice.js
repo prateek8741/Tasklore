@@ -1,5 +1,5 @@
 "use strict";
-// Voice for FirstRung: microphone capture, WAV encoding, playback of Gemini's voice, and the live coach.
+// Voice for Tasklore: microphone capture, WAV encoding, playback of Gemini's voice, and the live coach.
 // The live coach talks to the Gemini Live API directly over a WebSocket, using a single-use token from our API
 // (POST /api/coach/start). The real API key never reaches the browser.
 

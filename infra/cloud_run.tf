@@ -79,9 +79,14 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.project_id
       }
       env {
-        # Browsers may call the API only from our own sites (plus local dev).
-        name  = "CORS_ORIGINS"
-        value = "https://${var.project_id}.web.app,https://${var.project_id}.firebaseapp.com,http://localhost:8080"
+        # Browsers may call the API only from our own sites (plus local dev). The old project-named
+        # address only redirects to the new one now, but stays allowed for pages already open.
+        name = "CORS_ORIGINS"
+        value = join(",", [
+          "https://${var.site_id}.web.app", "https://${var.site_id}.firebaseapp.com",
+          "https://${var.project_id}.web.app", "https://${var.project_id}.firebaseapp.com",
+          "http://localhost:8080",
+        ])
       }
     }
   }

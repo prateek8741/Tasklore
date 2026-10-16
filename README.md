@@ -1,14 +1,14 @@
-# FirstRung
+# Tasklore
 
 **Seniors show a task once. New hires get an onboarding plan that adapts to them.**
 
 AI Builder Cup 2026 · Track: Future of Work & Enterprise Productivity
 
-A senior records their screen while doing a real task and explaining it. Gemini turns the recording into a playbook. A manager describes a new hire's role, and FirstRung builds a day-by-day onboarding plan from the team's playbooks, **flags the knowledge nobody has recorded yet**, and adapts as the new hire works (hints when stuck, skips what they already know).
+A senior records their screen while doing a real task and explaining it. Gemini turns the recording into a playbook. A manager describes a new hire's role, and Tasklore builds a day-by-day onboarding plan from the team's playbooks, **flags the knowledge nobody has recorded yet**, and adapts as the new hire works (hints when stuck, skips what they already know).
 
-**What makes it different:** most onboarding tools store what a team already wrote down. FirstRung **measures what is missing** (role coverage, and a team knowledge map of what lives only in someone's head), **gets it recorded** (gap → ask an expert → automatic re-check), and **keeps playbooks improving** from the questions new hires actually ask. Practice is **verified**: a screenshot of the result is checked against the team's own "done right when" list.
+**What makes it different:** most onboarding tools store what a team already wrote down. Tasklore **measures what is missing** (role coverage, and a team knowledge map of what lives only in someone's head), **gets it recorded** (gap → ask an expert → automatic re-check), and **keeps playbooks improving** from the questions new hires actually ask. Practice is **verified**: a screenshot of the result is checked against the team's own "done right when" list.
 
-Live: https://firstrung-993fd.web.app
+Live: https://tasklore.web.app
 
 ## Architecture (API-first)
 
@@ -16,7 +16,7 @@ Live: https://firstrung-993fd.web.app
 flowchart LR
   U[Browser] -- Sign in with Google --> FA[Firebase Auth]
   U -- "/api/** + ID token" --> H[Firebase Hosting]
-  H -- rewrite --> R[Cloud Run: FirstRung API<br/>FastAPI]
+  H -- rewrite --> R[Cloud Run: Tasklore API<br/>FastAPI]
   R -- verify token --> FA
   R --> G[Gemini API<br/>gemini-flash-latest]
   R --> F[(Firestore)]
@@ -119,7 +119,7 @@ How the live coach stays secure: the browser connects to Gemini directly over a 
 Teams often already have training videos. Paste a YouTube video or playlist link on the Capture page, tick the videos you want, and each becomes its own playbook (one task per playbook, so gap detection can match it). Gemini reads public videos directly from the URL. Single videos need no extra setup; playlists, video length and private/unlisted detection use the YouTube Data API with a key stored in Secret Manager (`youtube-api-key`), created with:
 
 ```bash
-gcloud services api-keys create --key-id=firstrung-youtube --display-name="FirstRung YouTube" \
+gcloud services api-keys create --key-id=firstrung-youtube --display-name="Tasklore YouTube" \
   --api-target=service=youtube.googleapis.com
 gcloud services api-keys get-key-string firstrung-youtube --format="value(keyString)" \
   | tr -d '\n' | gcloud secrets versions add youtube-api-key --data-file=-

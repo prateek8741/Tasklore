@@ -8,6 +8,7 @@ locals {
     "firestore.googleapis.com",          # database
     "firebaserules.googleapis.com",      # Firestore security rules
     "firebase.googleapis.com",           # Firebase project management
+    "firebasehosting.googleapis.com",    # Firebase Hosting (the web app's sites)
     "identitytoolkit.googleapis.com",    # Firebase Authentication
     "secretmanager.googleapis.com",      # stores the Gemini API key
     "generativelanguage.googleapis.com", # Gemini API
