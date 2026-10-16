@@ -496,3 +496,17 @@ body.coach-open main { padding-bottom: 280px; }   /* keep the page usable behind
 .fill select { padding: 8px 11px; font-size: .875rem; }
 .fill input[type=text] { padding: 8px 11px; font-size: .875rem; }
 .fill-status { display: flex; align-items: center; margin: 10px 0 6px; }
+
+/* ---------- gap-closing agent: result panel in "Fill the gaps" ---------- */
+.agent-panel { background: var(--surface-2); border-radius: var(--radius-sm); padding: 12px 14px; margin-top: 4px;
+               animation: view-in var(--spring-time) var(--spring) both; }
+.agent-panel.busy { display: flex; align-items: center; animation: none; }
+.agent-summary { margin: 10px 0 4px; line-height: 1.5; }
+.agent-h { margin: 12px 0 2px; color: var(--muted); font-weight: 600; }
+.agent-list { margin: 0; padding-left: 18px; }
+.agent-list li { margin: 3px 0; }
+.agent-trace { margin: 0 0 8px; padding: 0; list-style: none; }
+.agent-trace li { padding: 6px 0; border-top: .5px solid var(--sep); }
+.agent-trace .ok { color: var(--good); font-weight: 700; margin-right: 4px; }
+.agent-trace .no { color: var(--warn); font-weight: 700; margin-right: 4px; }
+@media (prefers-reduced-motion: reduce) { .agent-panel { animation: fade .2s ease both; } }

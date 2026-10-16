@@ -9,6 +9,7 @@ so one model being retired or flaky does not take the app down.
 """
 import datetime
 import io
+import json
 import logging
 import os
 import time
@@ -81,6 +82,13 @@ def generate(contents, schema=None, system: str | None = None):
             log.warning("model %s failed: %s", model, e)
             last_err = e
     raise GeminiError(f"All Gemini models failed. Last error: {last_err}")
+
+
+def parsed(resp, schema) -> dict:
+    """Structured output -> dict. Falls back to parsing the raw JSON text."""
+    if getattr(resp, "parsed", None) is not None:
+        return resp.parsed.model_dump()
+    return schema.model_validate(json.loads(resp.text)).model_dump()
 
 
 # ---------- voice ----------

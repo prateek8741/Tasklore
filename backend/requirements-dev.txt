@@ -1,0 +1,3 @@
+# Local only (not in the Docker image): run the tests with `python -m pytest tests` from backend/
+-r requirements.txt
+pytest>=8

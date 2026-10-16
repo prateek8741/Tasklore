@@ -193,3 +193,43 @@ class AskExpertRequest(BaseModel):
 class DeclineRequest(BaseModel):
     reason: str = Field(default="", max_length=300)
     suggest: str = Field(default="", max_length=200)  # who to ask instead
+
+
+# ---------- Gap-closing agent: every ID, email and number here comes from the database, not from the model ----------
+class AgentRequest(BaseModel):
+    plan_id: str = Field(min_length=1, max_length=64)
+
+
+class GapOutcome(BaseModel):
+    topic: str
+    importance: int
+    state: Literal["requested_now", "requested", "recorded_not_covering", "declined", "not_requested"]
+    expert_email: str | None = None   # who is asked now (requested_now / requested)
+    request_id: str | None = None
+
+
+class TraceStep(BaseModel):
+    tool: str
+    ok: bool
+    note: str                          # what happened, for the manager (already redacted)
+    ms: int = 0
+
+
+class AgentRunResult(BaseModel):
+    run_id: str
+    plan_id: str
+    status: Literal["completed", "no_gaps", "stopped", "failed"]
+    stopped_reason: str | None = None
+    summary: str
+    summary_by: Literal["agent", "system"]   # agent = Gemini's words (checked); system = written by the API
+    gaps_found: int
+    requests_created: list[GapOutcome]
+    already_requested: list[GapOutcome]
+    unresolved: list[GapOutcome]       # still open and nobody asked: declined, not covered, or no fitting expert
+    coverage_before: int
+    coverage_after: int | None         # None = coverage was not re-checked in this run
+    next_steps: list[str]
+    trace: list[TraceStep]
+    model_calls: int
+    tool_calls: int
+    ms: int
