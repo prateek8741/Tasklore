@@ -140,7 +140,7 @@ function friendly(status, detail) {
   if (status === 401) return "Your sign-in has expired. Please sign in again.";
   if (/prepayment|credits are depleted/i.test(d)) return "Gemini's credits are used up. Top up in Google AI Studio, then try again.";
   if (status === 502) return "Gemini couldn't finish this one. Please try again in a moment.";
-  if (status === 429) return "Gemini is busy right now. Wait a few seconds and try again.";
+  if (status === 429) return /times an hour/.test(d) ? d : "Gemini is busy right now. Wait a few seconds and try again.";
   if (status >= 500) return "Something went wrong on our side. Please try again.";
   return d || `Request failed (HTTP ${status}).`;
 }
@@ -679,9 +679,12 @@ function renderPlan(plan, id, requests = [], { scroll = true } = {}) {
           ${tasks.map(t => `<tr><td>${esc(t.task)}</td><td>${IMPORTANCE[t.importance] || ""}</td><td>${t.importance}</td><td>${t.playbook_id ? "Yes" : "No"}</td></tr>`).join("")}
           </tbody><tfoot><tr><td colspan="4">${got} recorded points out of ${total} = <b>${plan.coverage_percent}%</b></td></tr></tfoot></table></details>
         <p class="small muted">Plan summary: ${esc(plan.summary)}</p></div></div></div>
-    <div class="card" id="plan-gaps"><h2>Fill the gaps (${plan.gaps.length})</h2>
-      <p class="muted small">Tasks this job needs that nobody has recorded. Add a video you already have and the gap is filled in about a minute,
-        or ask the expert who knows it: they see the request when they sign in, and recording it fills the gap.</p>
+    <div class="card" id="plan-gaps"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Fill the gaps (${plan.gaps.length})</h2>
+        <span id="agentBtn">${agentButtonHtml(id, plan.gaps.length)}</span></div>
+      <p class="muted small" style="margin-top:8px">Tasks this job needs that nobody has recorded. Add a video you already have and the gap is filled in about a minute,
+        or ask the expert who knows it: they see the request when they sign in, and recording it fills the gap.
+        ${plan.gaps.length ? "Or let the agent ask the right people for every gap at once." : ""}</p>
+      <div id="agentBox">${agentPanelHtml(id)}</div>
       ${plan.gaps.map((g, i) => `<div class="gap"><b>${esc(g.topic)}</b><div class="small">${esc(g.why_needed)}</div>
         <div class="foot"><span class="small">Best recorded by <b>${esc(g.suggested_recorder)}</b>, needed by day ${esc(g.needed_by_day)} ${g.importance === 3 ? `<span class="chip bad">Critical</span>` : ""}</span>
         <span class="row">${gapRequestHtml(g, i, id)}</span></div><div id="ask-${i}">${fillStatusHtml(id, g.topic)}</div></div>`).join("")
@@ -704,7 +707,89 @@ function renderPlan(plan, id, requests = [], { scroll = true } = {}) {
         ${it.playbook_id ? `<div class="small" style="margin-top:4px">Playbook: ${esc(state.titles[it.playbook_id] || "recorded task")}</div>` : ""}</div>`).join("")}</div>`).join("")}</div></div>`;
   state.lastPlan = plan; state.lastPlanId = id;
   renderFlow();
+  loadLastAgentRun(id);
   if (scroll) $("#planOut").scrollIntoView({ behavior: "smooth" });
+}
+
+// ---------------- gap-closing agent (Google ADK, on the API) ----------------
+// One click: the agent reads the plan's gaps, picks who on the team has recorded the closest work, asks them and
+// re-checks coverage. Every name and number shown is read back from FirstRung's database, not from the model's words.
+state.agent = {};   // planId -> { busy, started, result, at, error }
+const AGENT_STEP = { get_knowledge_gaps: "Read the gaps", get_task_experts: "Looked for experts",
+                     request_task_recording: "Asked an expert", recheck_role_coverage: "Re-checked coverage" };
+const AGENT_STATUS = { completed: ["good", "Done"], no_gaps: ["good", "Nothing to do"], stopped: ["warn", "Stopped early"], failed: ["bad", "Didn't run"] };
+const AGENT_OPEN = { declined: "declined; nobody else asked yet", recorded_not_covering: "a recording came in but didn't cover it: review it",
+                     not_requested: "nobody on the team has recorded close work" };
+
+function agentButtonHtml(planId, gaps) {
+  if (!gaps) return "";
+  const busy = state.agent[planId]?.busy;
+  return `<button class="btn sm primary" data-agent-run="${esc(planId)}" ${busy ? "disabled" : ""}
+    title="The agent asks the right expert to record each gap, then re-checks coverage">${busy ? "Agent working…" : "Close gaps with the agent"}</button>`;
+}
+
+function agentPanelHtml(planId) {
+  const a = state.agent[planId];
+  if (!a) return "";
+  if (a.busy) return `<div class="agent-panel busy" role="status" aria-busy="true"><span class="spin" aria-hidden="true"></span>
+    <span class="small">The agent is reading the gaps, picking experts from what your team has recorded, asking them and re-checking coverage (${Math.round((Date.now() - a.started) / 1000)} s)</span></div>`;
+  if (a.error) return `<div class="agent-panel"><p class="field-note" style="margin:0">${esc(a.error)}</p></div>`;
+  const r = a.result, [cls, label] = AGENT_STATUS[r.status] || ["", r.status];
+  const cov = r.coverage_after == null ? `Coverage ${r.coverage_before}% (not re-checked)`
+            : r.coverage_after === r.coverage_before ? `Coverage stays ${r.coverage_after}%` : `Coverage ${r.coverage_before}% to ${r.coverage_after}%`;
+  const group = (title, items, line) => items.length ? `<h3 class="agent-h small">${title}</h3><ul class="agent-list">${items.map(line).join("")}</ul>` : "";
+  return `<div class="agent-panel">
+    <div class="row" style="justify-content:space-between"><span class="row"><span class="chip ${cls}">${label}</span><b class="small">${cov}</b></span>
+      <span class="small muted">${a.at ? `${fmtDate(a.at)}, ` : ""}${plural(r.model_calls, "Gemini call")}, ${(r.ms / 1000).toFixed(1)} s</span></div>
+    ${r.stopped_reason ? `<p class="small" style="margin:8px 0 0">${esc(r.stopped_reason)}</p>` : ""}
+    <p class="agent-summary">${esc(r.summary)}</p>
+    ${group("Asked now", r.requests_created, c => `<li><b>${esc(c.topic)}</b> <span class="small muted">asked ${esc(c.expert_email)}</span></li>`)}
+    ${group("Already asked", r.already_requested, c => `<li><b>${esc(c.topic)}</b> <span class="small muted">with ${esc(c.expert_email)}</span></li>`)}
+    ${group("Still open", r.unresolved, u => `<li><b>${esc(u.topic)}</b> <span class="small muted">${AGENT_OPEN[u.state] || ""}</span></li>`)}
+    ${r.next_steps.length ? `<details class="how"><summary>Next steps (${r.next_steps.length})</summary>
+      <ul class="agent-list small">${r.next_steps.map(s => `<li>${esc(s)}</li>`).join("")}</ul></details>` : ""}
+    <details class="how"><summary>What the agent did (${plural(r.trace.length, "step")})</summary>
+      <ol class="agent-trace small">${r.trace.map(t => `<li><span class="${t.ok ? "ok" : "no"}" aria-label="${t.ok ? "done" : "refused or failed"}">${t.ok ? "✓" : "!"}</span>
+        <b>${esc(AGENT_STEP[t.tool] || t.tool)}</b> <span class="muted">${esc(t.note)}</span></li>`).join("")}</ol>
+      <p class="small muted" style="margin:0">Requests, people and coverage are read back from FirstRung after the run.
+        ${r.summary_by === "agent" ? "The summary is Gemini's words, checked and with personal data masked." : "The summary was written by FirstRung."}</p></details></div>`;
+}
+
+function drawAgent(planId) {
+  if (state.lastPlanId !== planId) return;
+  if ($("#agentBox")) $("#agentBox").innerHTML = agentPanelHtml(planId);
+  if ($("#agentBtn")) $("#agentBtn").innerHTML = agentButtonHtml(planId, state.lastPlan.gaps.length);
+}
+
+async function runAgent(planId) {
+  if (state.agent[planId]?.busy) return;
+  const a = state.agent[planId] = { busy: true, started: Date.now() };
+  drawAgent(planId);
+  const timer = setInterval(() => drawAgent(planId), 1000);
+  try {
+    // Straight to Cloud Run, like video uploads: a run can take longer than Firebase Hosting's 60 s.
+    const r = await call("/api/agent/close-gaps", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                     body: JSON.stringify({ plan_id: planId }) }, DIRECT_API);
+    Object.assign(a, { busy: false, result: r, at: Date.now() / 1000 });
+    const asked = r.requests_created.length;
+    toast(r.status === "failed" ? r.stopped_reason
+          : asked ? `The agent asked ${plural(asked, "expert")}. Coverage goes up when they record.`
+          : r.status === "no_gaps" ? "Nothing to do: this plan has no gaps." : "The agent didn't ask anyone new. See why on the plan.",
+          r.status === "failed" ? "bad" : "good", 7000);
+    if (state.lastPlanId === planId) await viewPlan(planId, { scroll: false });   // gap cards now show who was asked
+    loadPlans(); loadPeople();
+  } catch (e) { Object.assign(a, { busy: false, error: e.message }); }
+  clearInterval(timer);
+  drawAgent(planId);
+}
+
+async function loadLastAgentRun(planId) {   // re-opening a plan shows what the agent last did on it
+  if (state.agent[planId] || !state.lastPlan?.gaps) return;
+  try {
+    const { runs } = await call(`/api/agent/runs?plan_id=${encodeURIComponent(planId)}`);
+    const last = runs.find(x => x.summary);
+    if (last && !state.agent[planId]) { state.agent[planId] = { result: last, at: last.finished_at || last.started_at }; drawAgent(planId); }
+  } catch {}
 }
 
 // ---------------- fill a gap from the plan: upload a video, a YouTube link, or a playbook already in the library ----------------
@@ -837,7 +922,7 @@ function resetSample(btn) {
   const commit = setTimeout(async () => {
     try {
       await call("/api/demo/reset", { method: "POST" });
-      Object.assign(state, { lastPlan: null, lastPlanId: null, plan: null, planId: null, fills: {} });
+      Object.assign(state, { lastPlan: null, lastPlanId: null, plan: null, planId: null, fills: {}, agent: {} });
       $("#planOut").innerHTML = ""; renderFlow(); loadPlans();
       toast("The sample team is back: John's Python Developer plan and 3 playbooks.", "good", 6000);
     } catch (e) { toast(e.message, "bad"); }
@@ -931,11 +1016,11 @@ async function sendAsk(i) {
   } catch (e) { toast(e.message, "bad"); }
 }
 
-async function viewPlan(id) {
+async function viewPlan(id, opts = {}) {
   try {
     const r = await call(`/api/plans/${id}`);
     state.titles = r.playbook_titles || {};
-    renderPlan(r.plan, id, r.requests || []);
+    renderPlan(r.plan, id, r.requests || [], opts);
   } catch (e) { toast(e.message, "bad"); }
 }
 
@@ -1394,6 +1479,7 @@ document.addEventListener("click", (e) => {
   else if (d.fillYt) fillYouTube(+d.fillYt, t);
   else if (d.fillLink) fillLink(+d.fillLink, $(`#fillLib-${d.fillLink}`).value);
   else if (d.askGap) openAskForm(+d.askGap);
+  else if (d.agentRun) runAgent(d.agentRun);
   else if (d.askSend) sendAsk(+d.askSend);
   else if (d.viewPlan) viewPlan(d.viewPlan);
   else if (d.deletePlan) deletePlan(d.deletePlan, t);

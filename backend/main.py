@@ -28,30 +28,35 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
   POST /api/coach/start     single-use token for a live voice coach (Gemini Live API, voice + screen)
   GET  /api/knowledge       team knowledge map: per role, what is recorded and what lives only in someone's head
   POST /api/knowledge/briefing  Gemini's short risk briefing on that map
+  POST /api/agent/close-gaps    gap-closing agent (Google ADK): asks experts to record a plan's gaps, re-checks coverage
+  GET  /api/agent/runs?plan_id= the agent's recent runs on a plan
 """
 import array
+import asyncio
 import io
-import json
 import logging
 import os
 import time
 import wave
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import access
+import agent
 import auth
 import gemini
 import insights
 import mock_data
 import prompts
 import sample_data
+import services
 import youtube
-from schemas import (ApplyImprovements, ProofCheck, AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, Improvements,
-                     LinkGapRequest, PlanDraft, Playbook, PlanRequest, Recheck, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest,
+from agent import audit as agent_audit
+from schemas import (AgentRequest, AgentRunResult, ApplyImprovements, ProofCheck, AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, Improvements,
+                     LinkGapRequest, PlanDraft, Playbook, PlanRequest, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest,
                      YouTubeCaptureRequest, YouTubeResolveRequest)
 from store import store
 
@@ -77,19 +82,17 @@ def youtube_problem(_request, exc: youtube.YouTubeError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+@app.exception_handler(services.ServiceError)
+def service_refused(_request, exc: services.ServiceError):
+    return JSONResponse(status_code=exc.status, content={"detail": exc.detail})
+
+
 MAX_VIDEO_MB = 25  # Cloud Run requests cap at 32 MB
 SignedIn = Depends(auth.current_user)  # login only (no role needed)
 AnyRole = access.Member                         # signed in and holding some role
 Manager = Depends(access.need("manager"))
 Creator = Depends(access.need("manager", "expert"))    # may record and import playbooks
 Learner = Depends(access.need("manager", "newhire"))   # may open plans (managers: all; new hires: their own)
-
-
-def _parsed(resp, schema):
-    """Structured output -> dict. Falls back to parsing the raw JSON text."""
-    if getattr(resp, "parsed", None) is not None:
-        return resp.parsed.model_dump()
-    return schema.model_validate(json.loads(resp.text)).model_dump()
 
 
 # ---------------- infra checks ----------------
@@ -157,27 +160,27 @@ def _make_playbook(video, hint: str, source: dict, user: dict, request_id: str =
     With request_id, it answers a recording request: the request is closed and its plan re-checked.
     With fill = (plan_id, gap topic), it was added from that gap on the plan page, so it fills that gap directly."""
     t = time.time()
-    req = _open_request_for(user, request_id) if request_id else None
+    req = services.open_request_for(user, request_id) if request_id else None
     if fill[0]:   # fail before spending a Gemini call
         if user["role"] != "manager":
             raise HTTPException(403, "Only managers can fill a plan's gaps. Experts answer recording requests instead.")
-        _open_gap(fill[0], fill[1])
+        services.open_gap(fill[0], fill[1])
     if gemini.is_mock():
         playbook, model = mock_data.MOCK_PLAYBOOK, "mock"
     else:
         prompt = prompts.CAPTURE_USER.format(hint=f" Context: {hint}" if hint else "")
         model, resp = gemini.generate([video(), prompt], schema=Playbook, system=prompts.CAPTURE_SYSTEM)
-        playbook = _parsed(resp, Playbook)
-    doc = {**playbook, "created_at": time.time(), "created_by": _who(user), "source": source}
+        playbook = gemini.parsed(resp, Playbook)
+    doc = {**playbook, "created_at": time.time(), "created_by": services.who(user), "source": source}
     pb_id = store.put("playbooks", doc)
     out = {"id": pb_id, "model": model, "ms": int((time.time() - t) * 1000), "playbook": doc}
     if req:
         store.put("requests", {**req, "status": "done", "playbook_id": pb_id, "done_at": time.time()}, doc_id=request_id)
-        result = _recheck(req["plan_id"]) if store.get("plans", req["plan_id"]) else None
+        result = services.recheck(req["plan_id"]) if store.get("plans", req["plan_id"]) else None
         out["request"] = {"id": request_id, "topic": req["topic"], **({k: result[k] for k in
                           ("coverage_before", "coverage_after", "newly_covered")} if result else {})}
     if fill[0]:
-        out["filled"] = _fill_gap(fill[0], fill[1], pb_id, user)
+        out["filled"] = services.fill_gap(fill[0], fill[1], pb_id, user)
     return out
 
 
@@ -185,10 +188,6 @@ def _first_name(user: dict) -> str:
     """'Prateek Kumar' -> 'Prateek'; falls back to the part of the email before '@'."""
     name = (user.get("name") or "").strip() or (user.get("email") or "there").split("@")[0].replace(".", " ")
     return name.split()[0].title() if name else "there"
-
-
-def _who(user: dict) -> dict:
-    return {"uid": user["uid"], "email": user.get("email", ""), "name": user.get("name", "")}
 
 
 # ---------------- import from YouTube ----------------
@@ -310,7 +309,7 @@ def suggest_improvements(playbook_id: str, member: dict = Creator):
             questions="\n".join(f"{i}: {q['step']} | {q['note'] or '(no note)'} | {q['hint'][:300] or '(none)'} | "
                                 f"{'yes' if q['resolved'] else 'no'}" for i, q in enumerate(asked))),
             schema=Improvements, system=prompts.IMPROVE_SYSTEM)
-        draft = _parsed(resp, Improvements)
+        draft = gemini.parsed(resp, Improvements)
     keep = []
     for s in draft["suggestions"][:5]:   # drop what can't be applied
         if s["kind"] == "step" and not 0 <= s["step_index"] < len(pb["steps"]):
@@ -353,7 +352,7 @@ def improve_playbook(playbook_id: str, req: ApplyImprovements, member: dict = Cr
         pb["version"] = pb.get("version", 1) + 1
         pb["learned_from"] = pb.get("learned_from", 0) + req.based_on
         pb["improved_at"] = now
-        pb["history"] = (pb.get("history", []) + [{"at": now, "by": _who(member), "version": pb["version"],
+        pb["history"] = (pb.get("history", []) + [{"at": now, "by": services.who(member), "version": pb["version"],
                                                     "based_on": req.based_on, "changes": changes}])[-20:]
     store.put("playbooks", pb, doc_id=playbook_id)
     return {"id": playbook_id, "playbook": pb, "applied": len(changes), "version": pb.get("version", 1)}
@@ -363,38 +362,7 @@ def _faq_text(pb: dict) -> str:
     return " | ".join(f"Q: {f['q']} A: {f['a']}" for f in pb.get("faq", [])) or "(none)"
 
 
-# ---------------- plan + gaps ----------------
-def _library_text(library: dict) -> str:
-    if not library:
-        return "(empty: no playbooks recorded yet)"
-    return "\n".join(
-        f"- id={pid} | {p['title']} | goal: {p['goal']} | role: {p.get('role_hint', '')} | "
-        f"tools: {', '.join(p.get('tools', []))} | skills: {', '.join(p.get('skills', []))} | "
-        f"steps: {'; '.join(s['title'] for s in p.get('steps', []))}"
-        for pid, p in library.items())
-
-
-def finish_plan(draft: dict, library: dict) -> dict:
-    """Turn Gemini's draft into the final plan. Coverage and gaps are computed here, not guessed by the model:
-    coverage = importance-weighted share of the role's core tasks that a real library playbook teaches."""
-    for item in draft["items"]:
-        if item["playbook_id"] not in library:  # drop IDs the model invented
-            item["playbook_id"] = ""
-    for t in draft["role_tasks"]:
-        if t["playbook_id"] not in library:
-            t["playbook_id"] = ""
-        t["importance"] = min(max(int(t["importance"]), 1), 3)
-
-    total = sum(t["importance"] for t in draft["role_tasks"]) or 1
-    covered = sum(t["importance"] for t in draft["role_tasks"] if t["playbook_id"])
-    gaps = sorted(({"topic": t["task"], "why_needed": t["why_needed"], "suggested_recorder": t["suggested_recorder"],
-                    "importance": t["importance"], "needed_by_day": t["needed_by_day"]}
-                   for t in draft["role_tasks"] if not t["playbook_id"]),
-                  key=lambda g: (-g["importance"], g["needed_by_day"]))
-    draft["items"].sort(key=lambda i: i["day"])
-    return {**draft, "coverage_percent": round(100 * covered / total), "gaps": gaps}
-
-
+# ---------------- plan + gaps (the rules live in services.py) ----------------
 @app.post("/api/plan")
 def make_plan(req: PlanRequest, user: dict = Manager):
     library = store.list("playbooks")
@@ -403,14 +371,14 @@ def make_plan(req: PlanRequest, user: dict = Manager):
         draft, model = mock_data.mock_plan(req.role_description, req.days, library), "mock"
     else:
         model, resp = gemini.generate(
-            prompts.PLAN_USER.format(role=req.role_description, days=req.days, library=_library_text(library)),
+            prompts.PLAN_USER.format(role=req.role_description, days=req.days, library=services.library_text(library)),
             schema=PlanDraft, system=prompts.PLAN_SYSTEM)
-        draft = _parsed(resp, PlanDraft)
+        draft = gemini.parsed(resp, PlanDraft)
 
-    plan = finish_plan(draft, library)
+    plan = services.finish_plan(draft, library)
     plan["progress"] = _new_progress(len(plan["items"]))
     plan_id = store.put("plans", {**plan, "role_description": req.role_description, "days": req.days,
-                                  "created_at": time.time(), "created_by": _who(user)})
+                                  "created_at": time.time(), "created_by": services.who(user)})
     titles = {pid: p["title"] for pid, p in library.items()}  # lets clients show playbook names
     return {"id": plan_id, "model": model, "ms": int((time.time() - t) * 1000), "plan": plan,
             "playbook_titles": titles}
@@ -464,61 +432,7 @@ def list_plans(member: dict = Learner):
 
 @app.post("/api/plans/{plan_id}/recheck", dependencies=[Manager])
 def recheck_plan(plan_id: str):
-    if not store.get("plans", plan_id):
-        raise HTTPException(404, "Plan not found")
-    return _recheck(plan_id)
-
-
-def _recheck(plan_id: str) -> dict:
-    """Re-match a plan's core tasks against the CURRENT library (e.g. after someone recorded a gap).
-    Coverage and gaps are recomputed; the plan's items and the new hire's progress stay as they are."""
-    plan = store.get("plans", plan_id)
-    library = store.list("playbooks")
-    tasks = plan["role_tasks"]
-    before = {i: t["playbook_id"] for i, t in enumerate(tasks)}
-    if not gemini.is_mock():
-        _, resp = gemini.generate(prompts.RECHECK_USER.format(
-            role=plan.get("role_description") or plan["role"],
-            tasks="\n".join(f"{i}: {t['task']}" for i, t in enumerate(tasks)), library=_library_text(library)),
-            schema=Recheck, system=prompts.RECHECK_SYSTEM)
-        for m in _parsed(resp, Recheck)["matches"]:
-            if 0 <= m["task_index"] < len(tasks):
-                tasks[m["task_index"]]["playbook_id"] = m["playbook_id"]
-    old_coverage = plan.get("coverage_percent", 0)
-    plan.update(finish_plan(plan, library))
-    plan["rechecked_at"] = time.time()
-    store.put("plans", plan, doc_id=plan_id)
-    newly = [t["task"] for i, t in enumerate(tasks) if t["playbook_id"] and not before.get(i)]
-    return {"id": plan_id, "coverage_before": old_coverage, "coverage_after": plan["coverage_percent"],
-            "newly_covered": newly, "gaps": len(plan["gaps"]), "plan": plan,
-            "playbook_titles": {pid: p["title"] for pid, p in library.items()}}
-
-
-def _open_gap(plan_id: str, topic: str) -> dict:
-    plan = store.get("plans", plan_id)
-    if not plan:
-        raise HTTPException(404, "Plan not found")
-    if not any(t["task"] == topic and not t["playbook_id"] for t in plan["role_tasks"]):
-        raise HTTPException(409, "That gap is already filled on this plan. Refresh the plan to see it.")
-    return plan
-
-
-def _fill_gap(plan_id: str, topic: str, playbook_id: str, user: dict) -> dict:
-    """The manager chose this playbook for this gap, so it is linked directly: no Gemini re-match that could
-    miss it. Coverage and gaps are recomputed; an open recording request for the gap is closed by it."""
-    plan, library = _open_gap(plan_id, topic), store.list("playbooks")
-    old_coverage = plan.get("coverage_percent", 0)
-    for t in plan["role_tasks"]:
-        if t["task"] == topic:
-            t["playbook_id"] = playbook_id
-    plan.update(finish_plan(plan, library))
-    store.put("plans", plan, doc_id=plan_id)
-    for rid, r in store.list("requests").items():
-        if r["plan_id"] == plan_id and r["topic"] == topic and r["status"] == "open":
-            store.put("requests", {**r, "status": "done", "playbook_id": playbook_id, "done_at": time.time(),
-                                   "filled_by": _who(user)}, doc_id=rid)
-    return {"id": plan_id, "topic": topic, "coverage_before": old_coverage, "coverage_after": plan["coverage_percent"],
-            "plan": plan, "playbook_titles": {pid: p["title"] for pid, p in library.items()}}
+    return services.recheck(plan_id)
 
 
 @app.post("/api/plans/{plan_id}/fill")
@@ -526,7 +440,7 @@ def fill_gap(plan_id: str, req: LinkGapRequest, user: dict = Manager):
     """Fill a gap with a playbook already in the library (one the plan's matching missed)."""
     if not store.get("playbooks", req.playbook_id):
         raise HTTPException(404, "Playbook not found")
-    return _fill_gap(plan_id, req.gap, req.playbook_id, user)
+    return services.fill_gap(plan_id, req.gap, req.playbook_id, user)
 
 
 @app.post("/api/plans/{plan_id}/restart")
@@ -548,8 +462,7 @@ def get_plan(plan_id: str, member: dict = Learner):
     titles = {pid: store.get("playbooks", pid).get("title", pid)
               for pid in {i["playbook_id"] for i in plan["items"] if i["playbook_id"]}
               if store.get("playbooks", pid)}
-    requests = [{"id": rid, **r} for rid, r in store.list("requests").items() if r["plan_id"] == plan_id] \
-        if member["role"] == "manager" else []
+    requests = services.plan_requests(plan_id) if member["role"] == "manager" else []
     return {"id": plan_id, "plan": plan, "summary": _summary(plan["progress"]), "playbook_titles": titles, "requests": requests}
 
 
@@ -580,23 +493,7 @@ def assign_plan(plan_id: str, req: AssignRequest):
 # ---------------- recording requests: manager asks an expert to record a gap ----------------
 @app.post("/api/requests")
 def ask_expert(req: AskExpertRequest, member: dict = Manager):
-    plan = store.get("plans", req.plan_id)
-    if not plan:
-        raise HTTPException(404, "Plan not found")
-    gap = next((g for g in plan.get("gaps", []) if g["topic"] == req.topic), None)
-    if not gap:
-        raise HTTPException(400, "That gap is no longer open on this plan. Re-check coverage and try again.")
-    email = req.expert_email.strip().lower()
-    for rid, r in store.list("requests").items():
-        if r["plan_id"] == req.plan_id and r["topic"] == req.topic and r["status"] == "open":
-            raise HTTPException(409, f"Already requested from {r['expert_email']}.")
-    access.invite(email, "expert")
-    doc = {"plan_id": req.plan_id, "plan_role": plan["role"], "assigned_to": plan.get("assigned_to"),
-           "topic": gap["topic"], "why_needed": gap["why_needed"], "needed_by_day": gap["needed_by_day"],
-           "importance": gap["importance"], "expert_email": email, "status": "open",
-           "created_by": _who(member), "created_at": time.time()}
-    rid = store.put("requests", doc)
-    return {"id": rid, **doc}
+    return services.create_request(req.plan_id, req.topic, req.expert_email, member)
 
 
 @app.get("/api/requests")
@@ -612,34 +509,16 @@ def list_requests(member: dict = AnyRole):
 
 @app.post("/api/requests/{request_id}/decline")
 def decline_request(request_id: str, req: DeclineRequest, member: dict = Depends(access.need("expert"))):
-    r = _open_request_for(member, request_id)
+    r = services.open_request_for(member, request_id)
     store.put("requests", {**r, "status": "declined", "decline_reason": req.reason.strip(),
                            "suggested": req.suggest.strip(), "declined_at": time.time()}, doc_id=request_id)
     return {"id": request_id, "status": "declined"}
 
 
-def _open_request_for(member: dict, request_id: str) -> dict:
-    r = store.get("requests", request_id)
-    if not r or (member["role"] != "manager" and r["expert_email"] != member["email"]):
-        raise HTTPException(404, "Request not found")
-    if r["status"] != "open":
-        raise HTTPException(409, f"This request is already {r['status']}.")
-    return r
-
-
 @app.get("/api/people", dependencies=[Manager])
 def people():
     """Known emails by role, for the 'assign to' and 'ask an expert' pickers."""
-    out = {"expert": set(), "newhire": set()}
-    for u in store.list("users").values():
-        for role in out:
-            if role in (u.get("roles") or []) and u.get("email"):
-                out[role].add(u["email"])
-    for email, inv in store.list("invites").items():
-        for role in out:
-            if role in inv.get("roles", []):
-                out[role].add(email)
-    return {role: sorted(emails) for role, emails in out.items()}
+    return services.people_by_role()
 
 
 # ---------------- session: the new hire reports progress, the plan adapts ----------------
@@ -775,7 +654,7 @@ def session_proof(plan_id: str = Form(...), item_index: int = Form(...), file: U
             name=_first_name(user), day=item["day"], title=item["title"], detail=item["detail"],
             **{k: ctx[k] for k in ("pb_title", "steps", "gotchas", "success")})],
             schema=ProofCheck, system=prompts.PROOF_SYSTEM)
-        check = _parsed(resp, ProofCheck)
+        check = gemini.parsed(resp, ProofCheck)
 
     status, now = prog["status"], time.time()
     missing = [c["criterion"] for c in check["criteria"] if c["status"] == "missing"] + check["gotchas_seen"]
@@ -862,13 +741,14 @@ def _not_sample(doc: dict | None) -> dict | None:
 
 
 def seed_sample_team() -> dict:
-    """Replace every playbook, plan and recording request with the sample team. No Gemini calls."""
-    for c in SAMPLE_COLLECTIONS:
+    """Replace every playbook, plan and recording request with the sample team. No Gemini calls.
+    Agent runs go too: the sample plan keeps its ID, so old runs would look like runs on the fresh plan."""
+    for c in SAMPLE_COLLECTIONS + ("agent_runs",):
         for doc_id in store.list(c):
             store.delete(c, doc_id)
     data = sample_data.build(time.time())
     for pid, plan in data["plans"].items():
-        plan.update(finish_plan(plan, data["playbooks"]))
+        plan.update(services.finish_plan(plan, data["playbooks"]))
     for c in SAMPLE_COLLECTIONS:
         for doc_id, doc in data[c].items():
             store.put(c, doc, doc_id=doc_id)
@@ -904,6 +784,27 @@ def knowledge_briefing():
         return {"model": "mock", "text": mock_data.MOCK_BRIEFING}
     model, resp = gemini.generate(insights.briefing_facts(m), system=prompts.BRIEFING_SYSTEM)
     return {"model": model, "text": resp.text.strip()}
+
+
+# ---------------- gap-closing agent (Google ADK, see agent/) ----------------
+@app.post("/api/agent/close-gaps", response_model=AgentRunResult)
+async def close_gaps(req: AgentRequest, member: dict = Manager):
+    """The agent finds the plan's gaps, asks the right experts to record them and re-checks coverage.
+    Every name, ID and number in the answer is read back from the database, not taken from the model."""
+    run_id = await asyncio.to_thread(agent_audit.start, req.plan_id, member)
+    try:
+        result = await agent.run_close_gaps(req.plan_id, member, run_id=run_id)
+    except BaseException:
+        await asyncio.to_thread(agent_audit.abandon, run_id)
+        raise
+    await asyncio.to_thread(agent_audit.finish, result)
+    return result
+
+
+@app.get("/api/agent/runs", dependencies=[Manager])
+def agent_runs(plan_id: str = Query(min_length=1, max_length=64)):
+    """The agent's recent runs on a plan, newest first (what it did, not how it reasoned)."""
+    return {"runs": agent_audit.recent(plan_id)}
 
 
 # Local dev convenience: serve the web app from the same server.
