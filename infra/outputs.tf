@@ -19,6 +19,11 @@ output "api_service" {
   value = google_cloud_run_v2_service.api.name
 }
 
+output "web_url" {
+  description = "Where people open the web app."
+  value       = google_firebase_hosting_site.app.default_url
+}
+
 output "api_url" {
   description = "Public URL of the API on Cloud Run."
   value       = google_cloud_run_v2_service.api.uri

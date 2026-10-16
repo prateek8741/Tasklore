@@ -1,4 +1,4 @@
-"""FirstRung core API (runs on Cloud Run).
+"""Tasklore core API (runs on Cloud Run).
 
 The API is the product; the web app is just the first client. Any other client
 (Google Chat bot, Slack app, HR system) can call the same endpoints later.
@@ -61,7 +61,7 @@ from schemas import (AgentRequest, AgentRunResult, ApplyImprovements, ProofCheck
 from store import store
 
 logging.basicConfig(level=logging.INFO)
-app = FastAPI(title="FirstRung API", version="0.1.0")
+app = FastAPI(title="Tasklore API", version="0.1.0")
 
 # Allows other clients (local dev, a future Chat bot UI) to call the API.
 app.add_middleware(

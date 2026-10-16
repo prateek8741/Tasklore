@@ -1,5 +1,5 @@
 "use strict";
-// FirstRung web app: the first client of the FirstRung API (backend/main.py).
+// Tasklore web app: the first client of the Tasklore API (backend/main.py).
 // Every API call carries the signed-in user's Firebase ID token; the API checks it.
 
 const API = window.FIRSTRUNG_API || "";            // same origin: Firebase Hosting forwards /api/** to Cloud Run
@@ -62,6 +62,9 @@ const authReady = (async () => {
     const r = await fetch("/__/firebase/init.json");
     if (!r.ok) throw new Error("no Firebase config here");
     const config = await r.json();
+    // Sign in through this site's own /__/auth helper (every Firebase Hosting site serves it), so Google's popup
+    // names tasklore.web.app instead of the project's firebaseapp.com address.
+    if (/\.(web\.app|firebaseapp\.com)$/.test(location.hostname)) config.authDomain = location.hostname;
     const [{ initializeApp }, fb] = await Promise.all([
       import(`${FIREBASE_SDK}/firebase-app.js`), import(`${FIREBASE_SDK}/firebase-auth.js`)]);
     state.fb = fb; state.auth = fb.getAuth(initializeApp(config)); state.authOn = true;
@@ -151,7 +154,7 @@ async function call(path, opts = {}, base = API) {
   const t = await token(); if (t) headers.Authorization = "Bearer " + t;
   let r;
   try { r = await fetch(base + path, { ...opts, headers }); }
-  catch { throw new ApiError("Can't reach FirstRung. Check your internet connection and try again.", 0); }
+  catch { throw new ApiError("Can't reach Tasklore. Check your internet connection and try again.", 0); }
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new ApiError(friendly(r.status, body.detail), r.status);
   return body;
@@ -713,7 +716,7 @@ function renderPlan(plan, id, requests = [], { scroll = true } = {}) {
 
 // ---------------- gap-closing agent (Google ADK, on the API) ----------------
 // One click: the agent reads the plan's gaps, picks who on the team has recorded the closest work, asks them and
-// re-checks coverage. Every name and number shown is read back from FirstRung's database, not from the model's words.
+// re-checks coverage. Every name and number shown is read back from Tasklore's database, not from the model's words.
 state.agent = {};   // planId -> { busy, started, result, at, error }
 const AGENT_STEP = { get_knowledge_gaps: "Read the gaps", get_task_experts: "Looked for experts",
                      request_task_recording: "Asked an expert", recheck_role_coverage: "Re-checked coverage" };
@@ -751,8 +754,8 @@ function agentPanelHtml(planId) {
     <details class="how"><summary>What the agent did (${plural(r.trace.length, "step")})</summary>
       <ol class="agent-trace small">${r.trace.map(t => `<li><span class="${t.ok ? "ok" : "no"}" aria-label="${t.ok ? "done" : "refused or failed"}">${t.ok ? "✓" : "!"}</span>
         <b>${esc(AGENT_STEP[t.tool] || t.tool)}</b> <span class="muted">${esc(t.note)}</span></li>`).join("")}</ol>
-      <p class="small muted" style="margin:0">Requests, people and coverage are read back from FirstRung after the run.
-        ${r.summary_by === "agent" ? "The summary is Gemini's words, checked and with personal data masked." : "The summary was written by FirstRung."}</p></details></div>`;
+      <p class="small muted" style="margin:0">Requests, people and coverage are read back from Tasklore after the run.
+        ${r.summary_by === "agent" ? "The summary is Gemini's words, checked and with personal data masked." : "The summary was written by Tasklore."}</p></details></div>`;
 }
 
 function drawAgent(planId) {
@@ -893,7 +896,7 @@ function fillLink(i, playbookId) {
 
 function copyGap(i) {
   const plan = state.lastPlan, g = plan.gaps[i];
-  const text = `Hi! We're onboarding a new ${plan.role} and nobody has recorded "${g.topic}" yet. Could you record a 2 to 3 minute FirstRung capture of you doing it, explaining each step out loud? They'll need it by day ${g.needed_by_day}. Thank you!`;
+  const text = `Hi! We're onboarding a new ${plan.role} and nobody has recorded "${g.topic}" yet. Could you record a 2 to 3 minute Tasklore capture of you doing it, explaining each step out loud? They'll need it by day ${g.needed_by_day}. Thank you!`;
   navigator.clipboard.writeText(text).then(() => toast("Request copied. Paste it into chat or email.", "good"), () => prompt("Copy this message:", text));
 }
 

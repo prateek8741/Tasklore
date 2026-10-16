@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy FirstRung code. Infrastructure (services, accounts, permissions) is Terraform's
+# Deploy Tasklore code. Infrastructure (services, accounts, permissions) is Terraform's
 # job: run `terraform apply` in infra/ first.
 # Usage:  ./deploy.sh        API and web app
 #         ./deploy.sh api    API only: build the image, roll it out on Cloud Run
@@ -29,4 +29,4 @@ if [[ "$WHAT" == "all" || "$WHAT" == "web" ]]; then
   firebase deploy --only hosting --project "$PROJECT_ID"
 fi
 
-echo "Done. API: $(tf_out api_url)"
+echo "Done. Web: $(tf_out web_url)  API: $(tf_out api_url)"

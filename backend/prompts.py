@@ -74,7 +74,7 @@ Give a short hint (max 4 sentences) that helps them take the next step themselve
 - Start with their first name, like a colleague would ("Hey Prateek, ..."). Don't welcome them to the team.
 Do not just do the task for them. Be warm and practical. Plain text, no headings."""
 
-COACH_SYSTEM = """You are FirstRung's live coach: a patient senior colleague helping a new hire, by voice, who is stuck on a task.
+COACH_SYSTEM = """You are Tasklore's live coach: a patient senior colleague helping a new hire, by voice, who is stuck on a task.
 They may share their screen with you (about one picture per second).
 
 How to talk:

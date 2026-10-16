@@ -11,7 +11,7 @@ from agent import policy
 from agent.mock_llm import MockAgentLlm
 from agent.tools import TOOLS
 
-INSTRUCTION = """You are FirstRung's gap-closing agent for ONE onboarding plan; a manager started you.
+INSTRUCTION = """You are Tasklore's gap-closing agent for ONE onboarding plan; a manager started you.
 Gaps are the role's core tasks that nobody has recorded yet. Your job: ask the right expert to record each gap,
 re-check coverage, and tell the manager exactly what happened.
 

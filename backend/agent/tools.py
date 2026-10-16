@@ -114,7 +114,7 @@ async def get_task_experts(gaps: list[str], tool_context: ToolContext) -> dict:
 
 
 async def request_task_recording(gap: str, expert: str, tool_context: ToolContext) -> dict:
-    """Asks one expert (EXPERT-n) to record one gap (GAP-n). Creates a recording request they see in FirstRung.
+    """Asks one expert (EXPERT-n) to record one gap (GAP-n). Creates a recording request they see in Tasklore.
     Returns ok: true only if the request was really created."""
     run, t0, created = current(tool_context), time.time(), False
     try:
