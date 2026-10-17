@@ -13,6 +13,8 @@ TEAM = {
     "manager": {"uid": "sample-manager", "email": "", "name": "Sample team"},
 }
 NEW_HIRE = "john@example.com"
+TEAM_ROLES = [("priya@example.com", "expert"), ("arjun@example.com", "expert"), ("ravi@example.com", "expert"),
+              (NEW_HIRE, "newhire")]
 PLAN_ID = "sample-plan-john"
 
 PLAYBOOKS = {

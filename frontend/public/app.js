@@ -77,15 +77,40 @@ const authReady = (async () => {
 
 function renderAuth() {
   const box = $("#authBox");
-  if (!state.authOn) box.innerHTML = `<span class="chip">Local dev, sign-in off</span>`;
+  const menu = `<div class="account-menu" id="accountMenu" role="dialog" aria-label="Your account" hidden></div>`;
+  if (!state.authOn) box.innerHTML = `<button class="who-btn" data-action="account" aria-haspopup="dialog" aria-expanded="false" aria-controls="accountMenu">
+      <span class="chip">Local dev, sign-in off</span></button>${menu}`;
   else if (state.user) {
     const name = state.user.displayName || state.user.email;
-    box.innerHTML = `<span class="avatar" aria-hidden="true">${esc(name[0].toUpperCase())}</span>
-      <span class="who" title="${esc(state.user.email)}">${esc(name)}</span>
+    box.innerHTML = `<button class="who-btn" data-action="account" aria-haspopup="dialog" aria-expanded="false" aria-controls="accountMenu">
+        <span class="avatar" aria-hidden="true">${esc(name[0].toUpperCase())}</span>
+        <span class="who">${esc(name)}</span></button>${menu}
       <button class="btn sm ghost" data-action="sign-out">Sign out</button>`;
   } else box.innerHTML = `<button class="btn primary sm" data-action="sign-in">Sign in with Google</button>`;
   refreshMe();
 }
+
+// The account card under your name: who you are signed in as, and which roles you hold.
+function renderAccount() {
+  const m = $("#accountMenu"); if (!m) return;
+  const me = state.me || {}, name = me.name || state.user?.displayName || "", email = me.email || state.user?.email || "";
+  const held = [...(me.admin ? ["Admin"] : []), ...(me.roles || []).map(r => ROLE_NAME[r])];
+  m.innerHTML = `<b class="acct-name">${esc(name || email)}</b>
+    ${email && name ? `<div class="small muted acct-email">${esc(email)}</div>` : ""}
+    ${me.role ? `<div class="acct-row"><span class="small muted">Viewing as</span> <b>${ROLE_NAME[me.role]}</b></div>
+      <div class="acct-row"><span class="small muted">Your roles</span><div>${held.map(r => `<span class="chip ${r === "Admin" ? "brand" : ""}">${r}</span>`).join("")}</div></div>
+      ${me.demo ? `<p class="small muted acct-note">Demo mode: everyone can try every role.</p>` : ""}
+      ${teamCanSee(me) ? `<a class="btn sm acct-team" href="#team">Manage team</a>` : ""}`
+    : `<p class="small muted acct-note">${esc(me.noaccess || "You don't have a role yet.")}</p>`}`;
+}
+function toggleAccount(open) {
+  const btn = $("#authBox .who-btn"), m = $("#accountMenu"); if (!btn || !m) return;
+  open = open ?? m.hidden;
+  if (open) renderAccount();
+  m.hidden = !open; btn.setAttribute("aria-expanded", String(open));
+}
+document.addEventListener("click", e => { if (!e.target.closest("#authBox") || e.target.closest(".acct-team")) toggleAccount(false); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#accountMenu")?.hidden) { toggleAccount(false); $("#authBox .who-btn")?.focus(); } });
 
 // ---------------- roles: manager, expert, new hire (the API enforces them; the UI mirrors them) ----------------
 const ROLE_NAME = { manager: "Manager", expert: "Expert", newhire: "New hire" };
@@ -107,6 +132,8 @@ function applyRole() {
   $("#btnResetSample").hidden = !me.demo || role !== "manager";
   $$("#nav a[data-roles]").forEach(a => a.hidden = !role || !a.dataset.roles.split(" ").includes(role));
   $("#navLearn").textContent = role === "newhire" ? "My onboarding" : "New hire";
+  $("#navTeam").hidden = !teamCanSee(me);
+  if (!$("#accountMenu")?.hidden) renderAccount();
   const showBar = !!role && (me.demo || (me.roles || []).length > 1);
   $("#roleBar").hidden = !showBar;
   if (showBar) {
@@ -118,6 +145,8 @@ function applyRole() {
                 expert: [["#capture", "See my recording requests", 1]], newhire: [["#learn", "Open my onboarding", 1]] }[role]
               || [["#plan", "Onboard a new hire", 1], ["#capture", "Record a task"]];
   $("#heroCta").innerHTML = cta.map(([href, label, primary]) => `<a class="btn ${primary ? "primary" : ""} lg" href="${href}">${label}</a>`).join("");
+  $("#homeCta").innerHTML = cta.map(([href, label, primary]) => `<a class="btn ${primary ? "primary" : ""}" href="${href}">${label}</a>`).join("");
+  $('#nav a[data-view="home"]').textContent = role ? "Home" : "Overview";
 }
 
 
@@ -183,9 +212,9 @@ async function upload(path, form, onProgress) {
 const skeleton = (lines = 3) => Array.from({ length: lines }, (_, i) => `<div class="skel line" style="width:${90 - i * 18}%"></div>`).join("");
 
 // ---------------- routing ----------------
-const VIEWS = ["home", "capture", "plan", "knowledge", "learn", "system"];
-const ON_ENTER = { home: loadStats, capture: () => { loadLibrary(); loadRequests(); }, plan: () => { renderFlow(); loadPlans(); loadPeople(); },
-                   knowledge: () => { loadKnowledge(); loadPeople(); }, learn: loadPlanPicker };
+const VIEWS = ["home", "about", "capture", "plan", "knowledge", "learn", "team", "system"];
+const ON_ENTER = { home: renderHome, about: () => {}, capture: () => { loadLibrary(); loadRequests(); }, plan: () => { renderFlow(); loadPlans(); loadPeople(); },
+                   knowledge: () => { loadKnowledge(); loadPeople(); }, learn: loadPlanPicker, team: loadTeam };
 function route() {
   let v = location.hash.slice(1) || "home";
   if (!VIEWS.includes(v)) v = "home";
@@ -193,29 +222,183 @@ function route() {
   if (signedIn && !state.me) return;   // refreshMe() routes once roles are known
   const role = state.me?.role;
   if (signedIn && role && VIEW_ROLES[v] && !VIEW_ROLES[v].includes(role)) { location.hash = ROLE_HOME[role]; return; }
-  const gated = v !== "home" && !signedIn;
+  if (signedIn && role && v === "team" && !teamCanSee(state.me)) { location.hash = ROLE_HOME[role]; return; }
+  const gated = v !== "home" && v !== "about" && !signedIn;
+  if (v === "home" || v === "about") setLanding(v === "about" || !signedIn || !role);   // "about" = the landing page, signed in or not
   const noaccess = signedIn && state.me?.noaccess !== undefined;
   $$(".view").forEach(s => s.hidden = true);
   if (noaccess) { $("#noAccessMsg").textContent = state.me.noaccess || $("#noAccessMsg").textContent; $("#view-noaccess").hidden = false; return; }
-  $(gated ? "#view-signin" : `#view-${v}`).hidden = false;
+  $(gated ? "#view-signin" : `#view-${v === "about" ? "home" : v}`).hidden = false;
   $$("#nav a").forEach(a => { const on = a.dataset.view === v; a.classList.toggle("on", on); on ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"); });
-  if (!gated && (v === "home" ? state.user || !state.authOn : true)) ON_ENTER[v]?.();
+  if (!gated && (v === "home" ? (state.user || !state.authOn) && role : true)) ON_ENTER[v]?.();
 }
 window.addEventListener("hashchange", () => { route(); window.scrollTo(0, 0); });
 
-// ---------------- home ----------------
-async function loadStats() {
-  if (state.me?.role !== "manager") { $("#stats").hidden = true; return; }
+// ---------------- home: "Team at a glance" (live for managers, an example team for everyone else) ----------------
+// The four states of a core task, in stack order. Colour always comes with a glyph and a word (legend, tooltip, table).
+const KNOW = [["recorded", "Recorded", "✓"], ["requested", "Requested", "…"], ["missing", "Not recorded", "–"], ["critical", "Critical, not recorded", "!"]];
+const taskState = (x) => x.status === "recorded" ? "recorded" : x.status === "requested" ? "requested" : x.importance === 3 ? "critical" : "missing";
+const EXAMPLE_DASH = { example: true, team: { coverage_percent: 58, critical_missing: 3, playbooks: 7 },
+  roles: [{ role: "Data Engineer", counts: { recorded: 3, requested: 1, missing: 1, critical: 2 } },
+          { role: "Frontend Developer", counts: { recorded: 3, requested: 1, missing: 1, critical: 0 } },
+          { role: "Support Agent", counts: { recorded: 3, requested: 0, missing: 0, critical: 1 } },
+          { role: "Accounts Executive", counts: { recorded: 2, requested: 1, missing: 2, critical: 1 } }],
+  hires: [{ who: "john@example.com", role: "Python Developer", total: 12, done: 5, skipped: 1, stuck: 2, complete: false },
+          { who: "mei@example.com", role: "Frontend Developer", total: 10, done: 9, skipped: 1, stuck: 0, complete: true },
+          { who: "lena@example.com", role: "Customer Support Agent", total: 8, done: 3, skipped: 1, stuck: 0, complete: false }] };
+
+async function loadDash() {
+  if (state.me?.role !== "manager") return renderDash(EXAMPLE_DASH);
   try {
-    const [{ playbooks }, { plans }] = await Promise.all([call("/api/playbooks"), call("/api/plans")]);
-    const avg = plans.length ? Math.round(plans.reduce((s, p) => s + (p.coverage_percent || 0), 0) / plans.length) : 0;
-    const active = plans.filter(p => !p.progress.complete && p.progress.updated_at).length;
-    $("#stats").innerHTML = [[playbooks.length, "playbooks recorded"], [plans.length, "onboarding plans"],
-      [plans.length ? avg + "%" : "-", "average role coverage"], [active, "new hires in progress"]]
-      .map(([n, l]) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`).join("");
-    $("#stats").hidden = false;
-  } catch { $("#stats").hidden = true; }
+    const [m, { plans }] = await Promise.all([call("/api/knowledge"), call("/api/plans")]);
+    if (!m.roles.length) return renderEmptyTeam();
+    renderDash({ team: m.team,
+      roles: m.roles.map(r => ({ role: r.role, counts: Object.fromEntries(KNOW.map(([k]) => [k, r.tasks.filter(x => taskState(x) === k).length])) })),
+      hires: plans.filter(p => p.assigned_to).map(p => ({ who: p.assigned_to, role: p.role, total: p.progress.total, done: p.progress.done,
+        skipped: p.progress.skipped, stuck: p.progress.stuck_events, complete: p.progress.complete })) });
+  } catch { renderDash(EXAMPLE_DASH); }
 }
+
+// data-tip-v (the value, shown strong) and data-tip-l (what it is) feed the one shared tooltip.
+const tipAttrs = (value, label) => `tabindex="0" data-tip-v="${esc(value)}" data-tip-l="${esc(label)}" aria-label="${esc(label)}: ${esc(value)}"`;
+const tableView = (head, rows) => `<details class="tview"><summary>Show as table</summary><table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead>
+  <tbody>${rows.map(r => `<tr>${r.map((c, i) => i ? `<td>${esc(c)}</td>` : `<th scope="row">${esc(c)}</th>`).join("")}</tr>`).join("")}</tbody></table></details>`;
+const swatch = (k, glyph) => `<i class="sw k-${k}" aria-hidden="true">${glyph}</i>`;
+
+function donut(counts, total) {
+  const r = 48, c = 2 * Math.PI * r, gap = total > 1 ? 2 : 0;
+  let at = 0;
+  return `<svg class="donut" viewBox="0 0 120 120" role="img" aria-label="${KNOW.map(([, l], i) => `${counts[i]} ${l.toLowerCase()}`).join(", ")}">
+    <circle cx="60" cy="60" r="${r}" class="donut-track"/>
+    ${KNOW.map(([k, l], i) => {
+      if (!counts[i]) return "";
+      const len = counts[i] / total * c, seg = `<circle cx="60" cy="60" r="${r}" class="donut-seg k-${k}" transform="rotate(-90 60 60)"
+        stroke-dasharray="${Math.max(len - gap, .5).toFixed(2)} ${(c - len + gap).toFixed(2)}" stroke-dashoffset="${(-at).toFixed(2)}"
+        ${tipAttrs(plural(counts[i], "task"), l)}/>`;
+      at += len; return seg;
+    }).join("")}</svg>`;
+}
+
+function renderDash(d) {
+  document.body.classList.toggle("dash-live", !d.example);
+  const counts = KNOW.map(([k]) => d.roles.reduce((s, r) => s + r.counts[k], 0)), total = counts.reduce((a, b) => a + b, 0) || 1;
+  const sum = (r) => KNOW.reduce((s, [k]) => s + r.counts[k], 0) || 1;
+  const live = !d.example, inProgress = d.hires.filter(h => !h.complete).length;
+  const tiles = [[d.team.coverage_percent + "%", "of the team's know-how is recorded", "#knowledge"],
+                 [d.team.critical_missing, "critical tasks only in someone's head", "#knowledge"],
+                 [inProgress, "new hires in progress", "#plan"], [d.team.playbooks, "playbooks in the library", "#capture"]];
+  $("#dash").innerHTML = `
+    <div class="dash-head"><h2>Team at a glance</h2>
+      <span class="chip ${live ? "good" : ""}">${live ? "Live" : d.emptyLive ? "Example · build a plan to see your team" : "Example team"}</span></div>
+    <div class="stats">${tiles.map(([n, l, href], i) => `<a class="stat${i === 1 && n ? " alarm" : ""}" href="${href}"><b>${n}</b><span>${l}</span></a>`).join("")}</div>
+    <div class="dash-grid">
+      <figure class="card chart">
+        <figcaption><h3>Team know-how</h3><span class="small muted">${plural(total, "core task")} across ${plural(d.roles.length, "role")}</span></figcaption>
+        <div class="donut-wrap">${donut(counts, total)}
+          <div class="donut-center" aria-hidden="true"><b>${counts[0]} of ${total}</b><span>core tasks recorded</span></div></div>
+        <div class="legend">${KNOW.map(([k, l, g], i) => `<span>${swatch(k, g)}${l} <b>${counts[i]}</b></span>`).join("")}</div>
+        ${tableView(["State", "Core tasks"], KNOW.map(([, l], i) => [l, counts[i]]))}
+      </figure>
+      <figure class="card chart">
+        <figcaption><h3>Coverage by role</h3><span class="small muted">Each role's core tasks, by state</span></figcaption>
+        <div class="rbars">${d.roles.map(r => `<div class="rbar">
+          <div class="rbar-top"><a href="#knowledge">${esc(r.role)}</a><span class="small muted">${Math.round(r.counts.recorded / sum(r) * 100)}% recorded</span></div>
+          <div class="rbar-track">${KNOW.filter(([k]) => r.counts[k]).map(([k, l]) =>
+            `<span class="rseg k-${k}" style="flex:${r.counts[k]}" ${tipAttrs(plural(r.counts[k], "task"), `${l} · ${r.role}`)}></span>`).join("")}</div></div>`).join("")}</div>
+        <div class="legend">${KNOW.map(([k, l, g]) => `<span>${swatch(k, g)}${l}</span>`).join("")}</div>
+        ${tableView(["Role", ...KNOW.map(([, l]) => l)], d.roles.map(r => [r.role, ...KNOW.map(([k]) => r.counts[k])]))}
+      </figure>
+    </div>
+    <figure class="card chart">
+      <figcaption><h3>New hires</h3><span class="small muted">Plan steps done, skipped and still to do</span></figcaption>
+      ${d.hires.length ? `<div class="hires">${d.hires.map(h => { const todo = Math.max(h.total - h.done - h.skipped, 0); return `<div class="hire">
+        <div class="hire-top"><b>${esc(h.who)}</b><span class="small muted">${esc(h.role)}</span>
+          ${h.complete ? `<span class="chip good">✓ Complete</span>` : ""}${h.stuck ? `<span class="chip warn">⚑ Stuck ${h.stuck}×</span>` : ""}</div>
+        <div class="hire-row"><div class="hbar">${[["done", "Done", h.done], ["skipped", "Skipped", h.skipped], ["todo", "To do", todo]].filter(x => x[2]).map(([k, l, n]) =>
+          `<span class="hseg k-${k}" style="flex:${n}" ${tipAttrs(`${n} of ${h.total}`, `${l} · ${h.who}`)}></span>`).join("")}</div>
+          <span class="small muted hire-n">${h.done} of ${h.total} done</span></div></div>`; }).join("")}</div>
+        <div class="legend"><span>${swatch("done", "✓")}Done</span><span>${swatch("skipped", "")}Skipped</span><span>${swatch("todo", "")}To do</span></div>
+        ${tableView(["New hire", "Role", "Done", "Skipped", "To do", "Times stuck"], d.hires.map(h => [h.who, h.role, h.done, h.skipped, Math.max(h.total - h.done - h.skipped, 0), h.stuck]))}`
+      : `<div class="empty">No new hires yet. Assign a plan on the <a href="#plan">Onboard</a> page.</div>`}
+    </figure>`;
+}
+queueMicrotask(() => renderDash(EXAMPLE_DASH));   // visitors who aren't signed in see the example team straight away (after the helpers below load)
+
+// ---------------- home once signed in: a compact header, then what this role needs (the hero is for the landing page) ----------------
+function setLanding(on) {
+  document.body.classList.toggle("home-app", !on);
+  $("#homeHead").hidden = on; $("#dash").hidden = false;
+  if (on) { $("#homeRoleCard").innerHTML = ""; renderDash(EXAMPLE_DASH); }
+}
+
+function renderHome() {
+  const me = state.me, h = new Date().getHours();
+  $("#homeHello").textContent = `${h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"}${firstName() ? ", " + firstName() : ""}`;
+  $("#homeRole").textContent = me.demo ? `Viewing as ${ROLE_NAME[me.role]}` : (me.admin ? "Admin · " : "") + ROLE_NAME[me.role];
+  $("#homeRoleCard").innerHTML = "";
+  $("#dash").hidden = me.role !== "manager";
+  ({ manager: loadDash, expert: expertHome, newhire: newhireHome })[me.role]();
+}
+
+function renderEmptyTeam() {   // a brand-new team: the three steps instead of empty charts (the header carries the pitch)
+  document.body.classList.remove("dash-live");
+  $("#dash").innerHTML = `<div class="card empty-team">
+    <h2>Onboard your first new hire</h2>
+    <p class="muted">Three steps. Your team's charts appear here as soon as the first plan exists.</p>
+    ${$(".hero .flow-home").outerHTML}
+    <a class="btn primary lg" href="#plan">Onboard your first new hire</a></div>`;
+}
+
+async function expertHome() {
+  const box = $("#homeRoleCard");
+  box.innerHTML = `<div class="card">${skeleton(3)}</div>`;
+  try {
+    const [{ requests }, { playbooks }] = await Promise.all([call("/api/requests"), call("/api/playbooks")]);
+    const open = requests.filter(r => r.status === "open"), mine = playbooks.filter(p => (p.created_by?.email || "") === state.me.email);
+    box.innerHTML = `<div class="stats home-stats">
+        <a class="stat" href="#capture"><b>${open.length}</b><span>recording ${open.length === 1 ? "request waits" : "requests wait"} for you</span></a>
+        <a class="stat" href="#capture"><b>${mine.length}</b><span>${mine.length === 1 ? "playbook" : "playbooks"} you recorded</span></a>
+        <a class="stat" href="#capture"><b>${playbooks.length}</b><span>playbooks in the team library</span></a></div>
+      ${open.length ? `<div class="card"><h2>Waiting for you</h2>${open.slice(0, 3).map(r => `<div class="plan-row"><div class="grow"><b>${esc(r.topic)}</b>
+          <div class="small muted">For the ${esc(r.plan_role || "new hire")} plan${r.importance === 3 ? " · critical" : ""}</div></div>
+          <a class="btn sm primary" href="#capture">Record it</a></div>`).join("")}</div>`
+        : `<div class="empty">No recording requests right now. Know something others don't? <a href="#capture">Record it anyway</a>.</div>`}`;
+  } catch (e) { box.innerHTML = `<div class="empty">Couldn't load your requests. ${esc(e.message)}</div>`; }
+}
+
+async function newhireHome() {
+  const box = $("#homeRoleCard");
+  box.innerHTML = `<div class="card">${skeleton(3)}</div>`;
+  try {
+    const { plans } = await call("/api/plans"), p = plans[0];
+    if (!p) { box.innerHTML = `<div class="empty">Your manager hasn't given you an onboarding plan yet. It shows up here when they do.</div>`; return; }
+    const g = p.progress;
+    box.innerHTML = `<div class="card home-plan"><div class="cover">${ring(g.percent, "small")}
+      <div class="grow"><h2>Your plan as ${esc(p.role)}</h2>
+        <p class="muted">${g.complete ? "You've finished every step." : `${g.done} of ${g.total} steps done${g.skipped ? `, ${g.skipped} skipped` : ""}.`}</p></div>
+      <a class="btn primary lg" href="#learn">${g.complete ? "Look back at your plan" : g.done ? "Continue my onboarding" : "Start my onboarding"}</a></div></div>`;
+  } catch (e) { box.innerHTML = `<div class="empty">Couldn't load your plan. ${esc(e.message)}</div>`; }
+}
+
+// One tooltip for every chart: follows the pointer on hover, sits above the mark on keyboard focus. Text only (textContent).
+const chartTip = Object.assign(document.createElement("div"), { className: "chart-tip", hidden: true });
+chartTip.setAttribute("role", "tooltip"); document.body.append(chartTip);
+function showTip(el, x, y) {
+  const v = document.createElement("b"), l = document.createElement("span");
+  v.textContent = el.dataset.tipV; l.textContent = el.dataset.tipL;
+  chartTip.replaceChildren(v, l); chartTip.hidden = false;
+  const w = chartTip.offsetWidth, h = chartTip.offsetHeight;
+  chartTip.style.left = Math.min(Math.max(8, x - w / 2), innerWidth - w - 8) + "px";
+  chartTip.style.top = (y - h - 12 < 8 ? y + 20 : y - h - 12) + "px";
+}
+document.addEventListener("pointermove", e => { const el = e.target.closest?.("[data-tip-v]"); el ? showTip(el, e.clientX, e.clientY) : chartTip.hidden = true; });
+document.addEventListener("focusin", e => { const el = e.target.closest?.("[data-tip-v]"); if (!el) return; const r = el.getBoundingClientRect(); showTip(el, r.left + r.width / 2, r.top); });
+document.addEventListener("focusout", () => { chartTip.hidden = true; });
+window.addEventListener("scroll", () => {   // a focused mark keeps its tooltip (focusing scrolls it into view); hover ones go
+  const el = document.activeElement?.closest?.("[data-tip-v]");
+  if (!el) { chartTip.hidden = true; return; }
+  const r = el.getBoundingClientRect(); showTip(el, r.left + r.width / 2, r.top);
+}, { passive: true });
 
 // ---------------- 1. capture ----------------
 let recorder = null, recTimer = null;
@@ -513,6 +696,103 @@ async function applyImprove(id, btn, dismiss = false) {
     loadLibrary();
   } catch (e) { toast(e.message, "bad"); btn.disabled = false; }
 }
+
+// ---------------- team: who holds which role (admins pick managers and admins, managers pick experts and new hires) ----------------
+// The API decides who may change what; these checks only hide buttons that would be refused.
+const TEAM_ROLES = ["admin", "manager", "expert", "newhire"];
+const TEAM_NAME = { admin: "Admin", manager: "Manager", expert: "Expert", newhire: "New hire" };
+const TEAM_TABS = [["all", "All"], ["admin", "Admins"], ["manager", "Managers"], ["expert", "Experts"], ["newhire", "New hires"], ["invited", "Not signed in"]];
+const AVATAR_TINTS = ["#2f6bd8", "#8e5bd8", "#c2570c", "#0f8a7e", "#b8336a", "#5e6ad2", "#1d8740"];
+const teamCanSee = (me) => !!me?.can_manage_team && (me.role === "manager" || (me.admin && !me.demo));
+const holds = (p, role) => role === "admin" ? p.admin : p.roles.includes(role);
+const teamName = (p) => p.name || p.email;
+
+function lastSeen(p) {
+  if (!p.signed_in) return "Invited, hasn't signed in yet";
+  const days = Math.floor((Date.now() / 1000 - (p.last_seen || 0)) / 86400);
+  return days < 1 ? "Active today" : days === 1 ? "Active yesterday" : `Active ${days} days ago`;
+}
+
+// Why this pill can't be changed by you (empty = it can).
+function teamLock(p, role) {
+  const t = state.team;
+  if (!t.grantable.includes(role)) return "Only an admin can change this";
+  if (role === "admin" && p.admin_fixed) return "Set on the server (ADMIN_EMAILS)";
+  if (!t.admin && (p.email === t.you || p.admin || p.roles.includes("manager"))) return "Only an admin can change this person's roles";
+  return "";
+}
+
+async function loadTeam() {
+  try { state.team = await call("/api/team"); renderTeam(); }
+  catch (e) { $("#teamList").innerHTML = `<div class="empty">Couldn't load the team. ${esc(e.message)}</div>`; }
+}
+
+function renderTeam() {
+  const t = state.team, tab = state.teamTab || "all";
+  state.teamPick = t.grantable.includes(state.teamPick) ? state.teamPick : "expert";
+  $("#teamDemo").hidden = !t.demo;
+  $("#teamIntro").textContent = t.admin
+    ? "Who can do what in Tasklore. As an admin you choose managers and admins; managers choose experts and new hires. People get their roles the next time they sign in with Google."
+    : "Who can do what in Tasklore. You can give and take away the expert and new hire roles; an admin chooses managers. People get their roles the next time they sign in with Google.";
+  $("#teamRolePick").innerHTML = t.grantable.map(r => `<button type="button" data-team-pick="${r}" aria-pressed="${r === state.teamPick}">${TEAM_NAME[r]}</button>`).join("");
+  const count = (k) => k === "all" ? t.people.length : k === "invited" ? t.people.filter(p => !p.signed_in).length : t.people.filter(p => holds(p, k)).length;
+  $("#teamTabs").innerHTML = TEAM_TABS.map(([k, label]) => `<button type="button" data-team-tab="${k}" aria-pressed="${k === tab}">${label} <span class="muted">${count(k)}</span></button>`).join("");
+  const shown = t.people.filter(p => tab === "all" || (tab === "invited" ? !p.signed_in : holds(p, tab)));
+  $("#teamList").innerHTML = shown.map((p, i) => {
+    const you = p.email === t.you;
+    const pills = TEAM_ROLES.filter(r => holds(p, r) || t.grantable.includes(r)).map(r => {
+      const on = holds(p, r), lock = teamLock(p, r);
+      return `<button type="button" class="role-pill" data-team-role="${esc(p.email)}|${r}" aria-pressed="${on}"${lock ? ` disabled title="${esc(lock)}"` : ""}
+        aria-label="${esc(TEAM_NAME[r])} for ${esc(teamName(p))}: ${on ? "on" : "off"}">${on ? "✓" : "+"} ${TEAM_NAME[r]}</button>`;
+    }).join("");
+    const canRemove = (p.admin || p.roles.length) && TEAM_ROLES.filter(r => holds(p, r)).every(r => !teamLock(p, r));
+    return `<div class="team-row">
+      <span class="avatar" aria-hidden="true" style="background:${AVATAR_TINTS[[...p.email].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_TINTS.length]}">${esc(teamName(p)[0].toUpperCase())}</span>
+      <div class="grow"><b>${esc(teamName(p))}</b>${you ? ` <span class="chip">You</span>` : ""}
+        <div class="small muted">${p.name ? `${esc(p.email)} · ` : ""}${lastSeen(p)}${p.plans ? ` · ${plural(p.plans, "plan")} assigned` : ""}</div></div>
+      <div class="role-pills">${pills}</div>
+      ${canRemove && !you ? `<button type="button" class="btn sm ghost" data-team-remove="${esc(p.email)}">Remove</button>` : `<span class="team-spacer"></span>`}
+    </div>`;
+  }).join("") || `<div class="empty">Nobody here yet.</div>`;
+}
+
+async function teamRole(email, role, on, quiet) {
+  const p = state.team.people.find(x => x.email === email);
+  if (!on && role === "newhire" && p?.plans && !confirm(`${teamName(p)} has ${plural(p.plans, "plan")} assigned. Take away the new hire role anyway? The plan stays, but they can't open it.`)) return;
+  try {
+    const updated = await postJSON("/api/team/roles", { email, role, on });
+    const i = state.team.people.findIndex(x => x.email === email);
+    i >= 0 ? state.team.people[i] = updated : state.team.people.push(updated);
+    renderTeam();
+    if (!quiet) toast(`${teamName(updated)} ${on ? "is now" : "is no longer"} ${role === "admin" ? "an admin" : role === "expert" ? "an expert" : "a " + TEAM_NAME[role].toLowerCase()}.`,
+      "info", 5000, { label: "Undo", onClick: () => teamRole(email, role, !on, true) });
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+async function teamRemove(email) {
+  const p = state.team.people.find(x => x.email === email);
+  const had = TEAM_ROLES.filter(r => holds(p, r));
+  if (!confirm(`Remove all of ${teamName(p)}'s roles? Their plans and playbooks stay.`)) return;
+  try {
+    await call(`/api/team/${encodeURIComponent(email)}`, { method: "DELETE" });
+    await loadTeam();
+    toast(`Removed ${teamName(p)} from the team.`, "info", 5000, { label: "Undo", onClick: async () => {
+      for (const r of had) await postJSON("/api/team/roles", { email, role: r, on: true }).catch(() => {});
+      loadTeam();
+    } });
+  } catch (e) { toast(e.message, "bad"); }
+}
+
+$("#teamAdd").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const email = $("#teamEmail").value.trim().toLowerCase(), note = $("#teamNote");
+  note.hidden = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+  if (!note.hidden) { note.textContent = "Enter a work email, like john@company.com"; return $("#teamEmail").focus(); }
+  const btn = $("#btnTeamAdd"); btn.disabled = true;
+  await teamRole(email, state.teamPick, true);
+  btn.disabled = false; $("#teamEmail").value = "";
+};
+$("#teamEmail").oninput = () => { $("#teamNote").hidden = true; };
 
 // ---------------- knowledge map ----------------
 // Built from each role's core tasks (the newest plan per role): recorded, requested, or only in someone's head.
@@ -1442,6 +1722,7 @@ document.addEventListener("click", (e) => {
   const d = t.dataset;
   if (d.action === "sign-in") signIn();
   else if (d.action === "sign-out") state.fb.signOut(state.auth);
+  else if (d.action === "account") toggleAccount();
   else if (d.action === "retry-upload") state.retry?.();
   else if (d.action === "close-playbook") $("#capOut").innerHTML = "";
   else if (d.action === "toggle-steps") toggleSteps();
@@ -1471,6 +1752,10 @@ document.addEventListener("click", (e) => {
     setTheme(t.getAttribute("aria-pressed") === "true" ? modes[(modes.indexOf(d.themeSet) + 1) % 3] : d.themeSet);
   }
   else if (d.resetSample !== undefined) resetSample(t);
+  else if (d.teamRole) { const [email, role] = d.teamRole.split("|"); teamRole(email, role, t.getAttribute("aria-pressed") !== "true"); }
+  else if (d.teamRemove) teamRemove(d.teamRemove);
+  else if (d.teamPick) { state.teamPick = d.teamPick; renderTeam(); }
+  else if (d.teamTab) { state.teamTab = d.teamTab; renderTeam(); }
   else if (d.recheck) recheckPlan(d.recheck, t);
   else if (d.restart) restartPlan(d.restart, t);
   else if (d.roleSet) setRole(d.roleSet);

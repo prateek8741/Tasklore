@@ -65,9 +65,14 @@ resource "google_cloud_run_v2_service" "api" {
       }
       env {
         # Hackathon demo: everyone holds all roles and switches with "View as". Set "0" for a real team
-        # (then the first person to sign in is the manager, and others get roles through assignments and requests).
+        # (then admins and managers give out roles on the Team page; see backend/access.py).
         name  = "DEMO_MODE"
-        value = "1"
+        value = var.demo_mode
+      }
+      env {
+        # Always admins (comma-separated Google emails). Not a secret, so it lives here, not in Secret Manager.
+        name  = "ADMIN_EMAILS"
+        value = var.admin_emails
       }
       env {
         # Every call except /api/health must carry a valid Firebase sign-in token.
