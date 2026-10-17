@@ -7,6 +7,9 @@ Every endpoint except /api/health needs `Authorization: Bearer <Firebase ID toke
 
   GET  /api/health          infra check, no AI, no login
   GET  /api/me              who is signed in (login check)
+  GET  /api/team            Team page: everyone, their roles and admin status (managers and admins)
+  POST /api/team/roles      give or take away one role for an email
+  DELETE /api/team/{email}  take away all of someone's roles
   GET  /api/hello           infra check, one real Gemini call
   POST /api/capture         screen recording -> playbook (call the Cloud Run URL directly: can exceed 60 s)
   POST /api/youtube/resolve      YouTube video or playlist link -> the videos it contains (no AI call yet)
@@ -56,7 +59,7 @@ import services
 import youtube
 from agent import audit as agent_audit
 from schemas import (AgentRequest, AgentRunResult, ApplyImprovements, ProofCheck, AskExpertRequest, AssignRequest, CoachRequest, DeclineRequest, Improvements,
-                     LinkGapRequest, PlanDraft, Playbook, PlanRequest, RoleSwitch, SessionRequest, SessionResponse, SpeakRequest,
+                     LinkGapRequest, PlanDraft, Playbook, PlanRequest, RoleSwitch, TeamRoleChange, SessionRequest, SessionResponse, SpeakRequest,
                      YouTubeCaptureRequest, YouTubeResolveRequest)
 from store import store
 
@@ -126,6 +129,26 @@ def set_role(req: RoleSwitch, member: dict = AnyRole):
     doc = store.get("users", member["uid"]) or {}
     store.put("users", {**doc, "active_role": req.role}, doc_id=member["uid"])
     return {**member, "role": req.role}
+
+
+# ---------------- team: admins pick managers and admins; managers pick experts and new hires (see access.py) ----------------
+@app.get("/api/team")
+def team(member: dict = AnyRole):
+    if not member["can_manage_team"]:
+        raise HTTPException(403, "Only managers and admins can see the team.")
+    return {"people": access.team(), "you": member["email"], "admin": member["admin"], "demo": access.DEMO_MODE,
+            "grantable": list(access.GRANTABLE) if member["admin"] else ["expert", "newhire"]}
+
+
+@app.post("/api/team/roles")
+def team_role(req: TeamRoleChange, member: dict = AnyRole):
+    return access.change_role(member, req.email, req.role, req.on)
+
+
+@app.delete("/api/team/{email}")
+def team_remove(email: str, member: dict = AnyRole):
+    access.remove_from_team(member, email)
+    return {"removed": email.strip().lower()}
 
 
 @app.get("/api/hello", dependencies=[Manager])
@@ -752,6 +775,8 @@ def seed_sample_team() -> dict:
     for c in SAMPLE_COLLECTIONS:
         for doc_id, doc in data[c].items():
             store.put(c, doc, doc_id=doc_id)
+    for email, role in sample_data.TEAM_ROLES:   # so the Team page shows the sample team too
+        access.invite(email, role, by="sample team")
     return {c: len(data[c]) for c in SAMPLE_COLLECTIONS}
 
 

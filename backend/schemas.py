@@ -175,6 +175,12 @@ class RoleSwitch(BaseModel):
     role: Literal["manager", "expert", "newhire"]
 
 
+class TeamRoleChange(BaseModel):
+    email: str = Field(max_length=254)
+    role: Literal["admin", "manager", "expert", "newhire"]
+    on: bool
+
+
 class AssignRequest(BaseModel):
     email: str = Field(default="", max_length=200, pattern=r"^$|" + EMAIL)  # empty = unassign
 

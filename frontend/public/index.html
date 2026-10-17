@@ -30,6 +30,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
     <a href="#capture" data-view="capture" data-roles="manager expert">Library</a>
     <a href="#knowledge" data-view="knowledge" data-roles="manager">Knowledge</a>
     <a href="#learn" data-view="learn" data-roles="manager newhire" id="navLearn">New hire</a>
+    <a href="#team" data-view="team" id="navTeam" hidden>Team</a>
   </nav>
   <div class="theme-switch" role="group" aria-label="Appearance">
     <button data-theme-set="auto" aria-pressed="true" title="Follow this device">Auto</button>
@@ -74,6 +75,13 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 </section>
 
 <section id="view-home" class="view">
+  <!-- Signed in: a compact header. The full hero is the landing page (signed out, or "How Tasklore works" in the footer). -->
+  <div class="home-head" id="homeHead" hidden>
+    <div class="home-hi"><h1 id="homeHello">Welcome</h1><span class="chip" id="homeRole"></span></div>
+    <div class="row" id="homeCta"></div>
+    <p class="home-tagline">Seniors show it once. <em>Tasklore finds what nobody has shown yet.</em></p>
+  </div>
+  <div id="homeRoleCard"></div>
   <div class="hero">
     <h1>Seniors show it once.<br><em>Tasklore finds what nobody has shown yet.</em></h1>
     <p class="lead">Record a task once. Gemini writes the playbook, plans each new hire's first days, and flags what nobody has recorded.</p>
@@ -87,19 +95,10 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
       <li><span class="n">3</span><div><b>Assign it</b><span>The new hire gets a day-by-day plan with hints, a live coach and screenshot checks.</span></div></li>
     </ol>
   </div>
-  <!-- product preview drawn with the app's own components (example data), so it always matches the live UI -->
-  <section class="preview" aria-label="Example of a team knowledge map">
-    <div class="preview-head"><h2>Team knowledge map</h2><span class="small muted"><i>Example</i> · 58% recorded</span></div>
-    <div class="preview-row"><b>Data Engineer</b><div class="km-cells"><span class="cell recorded"></span><span class="cell recorded"></span><span class="cell requested"></span><span class="cell missing crit"></span><span class="cell missing"></span><span class="cell recorded"></span><span class="cell missing crit"></span></div></div>
-    <div class="preview-row"><b>Frontend Developer</b><div class="km-cells"><span class="cell recorded"></span><span class="cell recorded"></span><span class="cell recorded"></span><span class="cell missing"></span><span class="cell requested"></span></div></div>
-    <div class="preview-row"><b>Support Agent</b><div class="km-cells"><span class="cell recorded"></span><span class="cell missing crit"></span><span class="cell recorded"></span><span class="cell recorded"></span></div></div>
-    <div class="preview-row"><b>Accounts Executive</b><div class="km-cells"><span class="cell recorded"></span><span class="cell missing"></span><span class="cell missing crit"></span><span class="cell requested"></span><span class="cell missing"></span><span class="cell recorded"></span></div></div>
-    <div class="km-legend small muted"><span><i class="recorded"></i>Recorded</span><span><i class="requested"></i>Requested</span>
-      <span><i class="missing"></i>Not recorded</span><span><i class="missing crit"></i>Critical, not recorded</span></div>
-  </section>
-  <div class="stats" id="stats" hidden aria-live="polite"></div>
-  <div class="section-head"><h2>How it works</h2></div>
-  <div class="bento">
+  <!-- Team at a glance: live charts for managers, the same charts on an example team for everyone else (app.js renderDash) -->
+  <section class="dash" id="dash" aria-label="Team at a glance" aria-live="polite"></section>
+  <div class="section-head how"><h2>How it works</h2></div>
+  <div class="bento how">
     <div class="tile big">
       <h3>One recording becomes a playbook</h3>
       <p>A senior does the task and talks it through, in English or Hindi. Gemini writes the steps, the reasons, the gotchas and the checks.</p>
@@ -211,6 +210,26 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
   <div id="kmOut" aria-live="polite"><div class="stats"><div class="skel block" style="height:84px"></div><div class="skel block" style="height:84px"></div><div class="skel block" style="height:84px"></div><div class="skel block" style="height:84px"></div></div></div>
 </section>
 
+<!-- Team (admins and managers): who holds which role. The API enforces who may change what (backend/access.py). -->
+<section id="view-team" class="view" hidden>
+  <div class="page-head">
+    <h1>Team</h1>
+    <p id="teamIntro">Who can do what in Tasklore. People get their roles the next time they sign in with Google.</p>
+  </div>
+  <p class="note" id="teamDemo" hidden><b>Demo mode.</b> Everyone who signs in can try every role, so these roles don't limit anyone yet. They take effect when demo mode is turned off.</p>
+  <form class="card" id="teamAdd" novalidate>
+    <label for="teamEmail">Add people</label>
+    <div class="row">
+      <input type="text" id="teamEmail" inputmode="email" autocomplete="off" placeholder="name@company.com" aria-describedby="teamNote" style="flex:1; min-width:220px">
+      <div class="seg" id="teamRolePick" role="group" aria-label="Role to give"></div>
+      <button class="btn primary" id="btnTeamAdd">Add</button>
+    </div>
+    <p class="field-note" id="teamNote" hidden></p>
+  </form>
+  <div class="seg team-tabs" id="teamTabs" role="group" aria-label="Show"></div>
+  <div class="card" id="teamList" aria-live="polite"><div class="skel line"></div><div class="skel line" style="width:70%"></div></div>
+</section>
+
 <!-- 3. New hire -->
 <section id="view-learn" class="view" hidden>
   <div class="page-head">
@@ -239,6 +258,7 @@ try { var t = localStorage.getItem("firstrung.theme"); if (t === "light" || t ==
 
 <footer>
   <span>Built with Gemini, Cloud Run, Firebase and Firestore</span>
+  <a href="#about">How Tasklore works</a>
   <a href="#system">System check</a>
   <a href="privacy.html">Privacy</a>
   <a href="https://github.com/prateek8741/Tasklore" target="_blank" rel="noopener">Source on GitHub</a>

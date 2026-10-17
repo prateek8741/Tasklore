@@ -530,3 +530,136 @@ body.coach-open main { padding-bottom: 300px; }   /* keep the page usable behind
 .agent-trace li { padding: 6px 0; border-top: .5px solid var(--sep); }
 .agent-trace .ok { color: var(--good); font-weight: 700; margin-right: 4px; }
 .agent-trace .no { color: var(--warn); font-weight: 700; margin-right: 4px; }
+
+/* ---------- team: who holds which role ---------- */
+.note { padding: 12px 16px; border-radius: var(--radius-sm); background: var(--tint-soft); margin: 0 0 12px; max-width: 760px; }
+.team-tabs { width: max-content; max-width: 100%; overflow-x: auto; scrollbar-width: none; margin: 8px 0 12px; }
+.team-tabs button { white-space: nowrap; }
+.team-row { display: flex; gap: 12px 14px; align-items: center; flex-wrap: wrap; padding: 14px 0; border-top: .5px solid var(--sep); }
+.team-row:first-child { border-top: 0; padding-top: 0; }
+.team-row:last-child { padding-bottom: 0; }
+.team-row .avatar { width: 40px; height: 40px; font-size: 15px; }
+.team-row .grow { flex: 1 1 220px; min-width: 0; }
+.team-row .grow b { overflow-wrap: anywhere; }
+.role-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-pill { min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px dashed var(--sep); background: transparent; color: var(--muted);
+             font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .2s, color .2s, transform .3s var(--spring); }
+.role-pill:hover:not(:disabled) { color: var(--ink); border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+.role-pill:active:not(:disabled) { transform: scale(.96); }
+.role-pill[aria-pressed="true"] { border: 1px solid transparent; background: var(--tint-soft); color: var(--tint-ink); }
+.role-pill:disabled { cursor: default; opacity: 1; }
+.role-pill:disabled[aria-pressed="false"] { opacity: .45; }
+.team-spacer { width: 84px; }
+@media (max-width: 760px) { .team-row .role-pills { order: 3; flex-basis: 100%; padding-left: 54px; } .team-spacer { display: none; } }
+
+/* ---------- account card under your name ---------- */
+.auth { position: relative; }
+.who-btn { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px 0 6px; border: 0; border-radius: 999px; background: transparent;
+           color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; transition: background .2s; }
+.who-btn:hover, .who-btn[aria-expanded="true"] { background: var(--fill); }
+.who-btn .chip { margin: 0; }
+.account-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: 280px; padding: 16px; border-radius: var(--radius);
+                background: var(--surface); box-shadow: var(--pop-shadow); white-space: normal; display: flex; flex-direction: column; gap: 10px;
+                animation: view-in .25s var(--spring) both; }
+.account-menu[hidden] { display: none; }
+.acct-name { font-size: 17px; overflow-wrap: anywhere; }
+.acct-email { margin-top: -8px; overflow-wrap: anywhere; }
+.acct-row { display: flex; flex-direction: column; gap: 4px; padding-top: 10px; border-top: .5px solid var(--sep); }
+.acct-row .chip { margin: 0 4px 4px 0; }
+.acct-note { margin: 0; }
+.acct-team { align-self: flex-start; }
+@media (max-width: 760px) { .account-menu { position: fixed; left: 16px; right: 16px; top: 64px; width: auto; } }
+
+/* ---------- charts: the four task states (validated for colour-blind separation in light and dark) ---------- */
+:root { --c-recorded: #1d8740; --c-requested: #2f6bd8; --c-missing: #e0a100; --c-critical: #d42a3a; --c-skipped: #a6a6a0;
+        --c-ink: #fff; --c-missing-ink: #111; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --c-recorded: #34a865; --c-requested: #6b8ef0; --c-missing: #bf8a10; --c-critical: #e8566a; --c-skipped: #6b6b66;
+                                    --c-ink: #0e0e0e; --c-missing-ink: #0e0e0e; }
+}
+:root[data-theme="dark"] { --c-recorded: #34a865; --c-requested: #6b8ef0; --c-missing: #bf8a10; --c-critical: #e8566a; --c-skipped: #6b6b66;
+                           --c-ink: #0e0e0e; --c-missing-ink: #0e0e0e; }
+.k-recorded, .k-done { --k: var(--c-recorded); --k-ink: var(--c-ink); }
+.k-requested { --k: var(--c-requested); --k-ink: var(--c-ink); }
+.k-missing { --k: var(--c-missing); --k-ink: var(--c-missing-ink); }
+.k-critical { --k: var(--c-critical); --k-ink: var(--c-ink); }
+.k-skipped { --k: var(--c-skipped); --k-ink: var(--c-ink); }
+.k-todo { --k: var(--fill); --k-ink: var(--muted); }
+/* the Knowledge page squares wear the same colours */
+.cell, .km-legend i { background: var(--c-missing); color: var(--c-missing-ink); }
+.cell.recorded, .km-legend i.recorded { background: var(--c-recorded); color: var(--c-ink); }
+.cell.requested, .km-legend i.requested { background: var(--c-requested); color: var(--c-ink); }
+.cell.crit:is(.missing, .declined), .km-legend i.crit { background: var(--c-critical); color: var(--c-ink); }
+
+/* ---------- home: Team at a glance ---------- */
+.dash { margin: 40px auto 0; max-width: 1100px; display: flex; flex-direction: column; gap: 12px; }
+.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dash-head h2 { font-size: 28px; letter-spacing: -.025em; margin: 0; }
+.dash .stats { margin: 0; }
+a.stat { color: var(--ink); text-decoration: none; transition: box-shadow .3s, transform .3s var(--spring); }
+a.stat:hover { box-shadow: var(--pop-shadow); }
+a.stat:active { transform: scale(.985); }
+.stat b { font-variant-numeric: normal; }
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 12px; align-items: start; }
+@media (max-width: 860px) { .dash-grid { grid-template-columns: 1fr; } }
+.chart { margin: 0; display: flex; flex-direction: column; gap: 16px; }
+.chart figcaption { display: flex; flex-direction: column; gap: 2px; }
+.chart figcaption h3 { margin: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); align-items: center; }
+.legend span { display: inline-flex; align-items: center; }
+.legend b { color: var(--ink); margin-left: 4px; font-weight: 600; }
+.sw { width: 16px; height: 16px; border-radius: 4px; margin-right: 6px; display: inline-grid; place-items: center; flex: none;
+      background: var(--k); color: var(--k-ink); font: 800 10px/1 var(--sans); font-style: normal; }
+.donut-wrap { position: relative; width: 180px; height: 180px; margin: 0 auto; }
+.donut { width: 100%; height: 100%; display: block; }
+.donut-track { fill: none; stroke: var(--fill); stroke-width: 14; }
+.donut-seg { fill: none; stroke: var(--k); stroke-width: 14; cursor: default; outline: none; transition: stroke-width .2s; }
+.donut-seg:hover, .donut-seg:focus-visible { stroke-width: 18; }
+.donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; }
+.donut-center b { font-size: 28px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
+.donut-center span { font-size: 12px; color: var(--muted); margin-top: 4px; max-width: 90px; }
+.rbars { display: flex; flex-direction: column; gap: 14px; }
+.rbar-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; margin-bottom: 6px; font-size: 14px; font-weight: 600; }
+.rbar-top a { color: var(--ink); }
+.rbar-track, .hbar { display: flex; gap: 2px; height: 20px; border-radius: 0 4px 4px 0; overflow: hidden; }
+.rseg, .hseg { min-width: 4px; background: var(--k); outline: none; transition: filter .2s; }
+.rseg:hover, .rseg:focus-visible, .hseg:hover, .hseg:focus-visible { filter: brightness(1.12); }
+.rseg:focus-visible, .hseg:focus-visible { box-shadow: inset 0 0 0 2px var(--ink); }
+.hires { display: flex; flex-direction: column; gap: 14px; }
+.hire-top { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 6px; }
+.hire-top b { font-size: 15px; overflow-wrap: anywhere; }
+.hire-top .chip { margin: 0; }
+.hire-row { display: flex; align-items: center; gap: 12px; }
+.hire-row .hbar { flex: 1; height: 12px; }
+.hire-n { flex: none; width: 92px; text-align: right; font-variant-numeric: tabular-nums; }
+.chart-tip { position: fixed; z-index: 60; pointer-events: none; display: flex; flex-direction: column; gap: 1px; padding: 8px 12px; border-radius: 10px;
+             background: var(--ink); color: var(--bg); font-size: 13px; box-shadow: var(--pop-shadow); max-width: 260px; }
+.chart-tip b { font-size: 15px; }
+.chart-tip span { opacity: .8; }
+.tview summary { cursor: pointer; color: var(--tint-ink); font-size: 13px; font-weight: 600; width: max-content; min-height: 32px; display: flex; align-items: center; }
+.tview table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+.tview th, .tview td { text-align: left; padding: 6px 8px; border-top: .5px solid var(--sep); }
+.tview thead th { color: var(--muted); font-weight: 600; border-top: 0; }
+.tview td { font-variant-numeric: tabular-nums; }
+body.dash-live .flow-home { display: none; }   /* managers know the three steps; their numbers come first */
+
+/* ---------- home once signed in ---------- */
+.home-head { display: grid; grid-template-columns: 1fr auto; gap: 6px 24px; align-items: center; padding: 8px 0 0; }
+.home-hi { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; }
+.home-hi h1 { margin: 0; }
+.home-hi .chip { margin: 0; }
+.home-tagline { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 17px; }
+.home-tagline em { font-family: var(--serif); font-style: italic; }
+@media (max-width: 760px) { .home-head { grid-template-columns: 1fr; } }
+body.home-app .hero, body.home-app #view-home .how { display: none; }
+body.home-app .dash { margin-top: 28px; }
+#homeRoleCard { margin-top: 28px; }
+#homeRoleCard:empty { display: none; }
+.home-stats { grid-template-columns: repeat(3, 1fr); margin: 0 0 12px; }
+@media (max-width: 760px) { .home-stats { grid-template-columns: 1fr; } }
+.home-plan .cover .grow { flex: 1; min-width: 200px; }
+.home-plan h2 { margin: 0 0 4px; }
+.empty-team { padding: 32px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.empty-team h2 { font-size: 28px; letter-spacing: -.025em; margin: 0; }
+.empty-team h2 em { font-family: var(--serif); font-style: italic; font-weight: 400; color: var(--muted); }
+.empty-team .flow-home { margin: 16px 0; }

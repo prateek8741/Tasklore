@@ -1,3 +1,5 @@
 # Copy to terraform.tfvars and set your own project ID.
 project_id = "your-project-id"
 # region   = "asia-south1"
+# admin_emails = "you@gmail.com"
+# demo_mode    = "0"   # "1" (default): everyone can try every role
